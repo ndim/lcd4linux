@@ -1,10 +1,11 @@
 /* $Id$
  * $URL$
  *
- * sample lcd4linux driver
+ * TeakLCM lcd4linux driver
  *
  * Copyright (C) 2005 Michael Reinelt <michael@reinelt.co.at>
  * Copyright (C) 2005, 2006, 2007 The LCD4Linux Team <lcd4linux-devel@users.sourceforge.net>
+ * Copyright (C) 2011 ixs
  *
  * This file is part of LCD4Linux.
  *
@@ -28,7 +29,7 @@
  *
  * exported fuctions:
  *
- * struct DRIVER drv_Sample
+ * struct DRIVER drv_TeakLCM
  *
  */
 
@@ -51,64 +52,93 @@
 #include "widget_bar.h"
 #include "drv.h"
 
-/* text mode display? */
 #include "drv_generic_text.h"
-
-/* graphic display? */
-#include "drv_generic_graphic.h"
-
-/* GPO's? */
-#include "drv_generic_gpio.h"
-
-/* serial port? */
 #include "drv_generic_serial.h"
 
-/* parallel port? */
-#include "drv_generic_parport.h"
+static char Name[] = "TeakLCM";
 
-/* i2c bus? */
-#ifdef WITH_I2C
-#include "drv_generic_i2c.h"
-#endif
+static int Mode = 0;
 
 
-static char Name[] = "Sample";
+/*
+ * Magic defines
+ */
 
+#define CONNECT         0x05
+#define DISCONNECT      0x06
+#define ALARM           0x07
+#define WRITE           0x08
+#define PRINT1          0x09
+#define PRINT2          0x0A
+#define ACK             0x0B
+#define NACK            0x0C
+#define CONFIRM         0x0D
+#define RESET           0x0E
 
-/* for parallel port displays only */
-/* use whatever lines you need */
-static unsigned char SIGNAL_RS;
-static unsigned char SIGNAL_EX;
+#define LCM_CLEAR       0x21
+#define LCM_HOME        0x22
+#define LCM_CURSOR_SHIFT_R 0x23
+#define LCM_CURSOR_SHIFT_L 0x24
+#define BACKLIGHT_ON   0x25
+#define BACKLIGHT_OFF  0x26
+#define LCM_LINE2      0x27
+#define LCM_DISPLAY_SHIFT_R 0x28
+#define LCM_DISPLAY_SHIFT_L 0x29
+#define LCM_CURSOR_ON  0x2A
+#define LCM_CURSOR_OFF 0x2B
+#define LCM_CURSOR_BLINK 0x2C
+#define LCM_DISPLAY_ON 0x2D
+#define LCM_DISPLAY_OFF 0x2E
 
+#define FRAME_MASK      0xFF
+#define TIMEOUT         2
+#define ESC             0x1B
+
+#define KEY1            0x31
+#define KEY2            0x32
+#define KEY3            0x33
+#define KEY4            0x34
+#define KEY12           0x35
+#define KEY13           0x36
+#define KEY14           0x37
+#define KEY23           0x38
+#define KEY24           0x39
+#define KEY34           0x3A
 
 
 /****************************************/
 /***  hardware dependant functions    ***/
 /****************************************/
 
-/* low-level parallel port stuff */
-/* example for sending one byte over the wire */
-static void drv_Sample_bang(const unsigned int data)
-{
-    /* put data on DB1..DB8 */
-    drv_generic_parport_data(data & 0xff);
-
-    /* set/clear some signals */
-    drv_generic_parport_control(SIGNAL_RS, SIGNAL_RS);
-
-    /* data setup time (e.g. 200 ns) */
-    ndelay(200);
-
-    /* send byte */
-    /* signal pulse width 500ns */
-    drv_generic_parport_toggle(SIGNAL_EX, 1, 500);
-
-    /* wait for command completion (e.g. 100 us) */
-    udelay(100);
+/* Send a command frame to the board */
+static void drv_TeakLCM_send_cmd_frame(unsigned char cmd) {
+    char cmd_buf[3];
+    cmd_buf[0]= FRAME_MASK;
+    cmd_buf[1]= cmd;
+    cmd_buf[2]= FRAME_MASK;
+    drv_generic_serial_write(cmd_buf, 3);
 }
 
 
-static int drv_Sample_open(const char *section)
+/* Initialize the LCM by completing the handshake */
+static void drv_TeakLCM_connect(){
+    Mode = 0;
+    char buffer[3];
+    drv_TeakLCM_send_cmd_frame(RESET);
+
+    if ((drv_generic_serial_read(buffer, 3) != 3) || (buffer[0] != FRAME_MASK) || (buffer[2] != FRAME_MASK)
+        ) {
+        error("%s: Error during handshake", Name);
+    }
+    if (buffer[1] == CONNECT)
+    {
+        Mode = 1;
+        drv_TeakLCM_send_cmd_frame(ACK);
+    }
+
+}
+
+static int drv_TeakLCM_open(const char *section)
 {
     /* open serial port */
     /* don't mind about device, speed and stuff, this function will take care of */
@@ -116,70 +146,42 @@ static int drv_Sample_open(const char *section)
     if (drv_generic_serial_open(section, Name, 0) < 0)
 	return -1;
 
-
-    /* opening the parallel port is a bit more tricky: */
-    /* you have to do all the bit-banging yourself... */
-
-    if (drv_generic_parport_open(section, Name) != 0) {
-	error("%s: could not initialize parallel port!", Name);
-	return -1;
-    }
-
-    /* read the wiring from config */
-    if ((SIGNAL_EX = drv_generic_parport_wire_ctrl("EX", "STROBE")) == 0xff)
-	return -1;
-    if ((SIGNAL_RS = drv_generic_parport_wire_ctrl("RS", "INIT")) == 0xff)
-	return -1;
-
-    /* clear all signals */
-    drv_generic_parport_control(SIGNAL_EX | SIGNAL_RS, 0);
-
-    /* set direction: write */
-    drv_generic_parport_direction(0);
-
     return 0;
 }
 
 
-static int drv_Sample_close(void)
+
+static int drv_TeakLCM_close(void)
 {
     /* close whatever port you've opened */
-    drv_generic_parport_close();
     drv_generic_serial_close();
 
     return 0;
 }
 
-
 /* dummy function that sends something to the display */
-static void drv_Sample_send(const char *data, const unsigned int len)
+static void drv_TeakLCM_send(const char *data, const unsigned int len)
 {
-    unsigned int i;
-
     /* send data to the serial port is easy... */
     drv_generic_serial_write(data, len);
 
-    /* sending data to the parallel port is a bit more tricky... */
-    for (i = 0; i < len; i++) {
-	drv_Sample_bang(*data++);
-    }
 }
 
 
 /* text mode displays only */
-static void drv_Sample_clear(void)
+static void drv_TeakLCM_clear(void)
 {
     char cmd[1];
 
     /* do whatever is necessary to clear the display */
     /* assume 0x01 to be a 'clear display' command */
     cmd[0] = 0x01;
-    drv_Sample_send(cmd, 1);
+    drv_TeakLCM_send(cmd, 1);
 }
 
 
 /* text mode displays only */
-static void drv_Sample_write(const int row, const int col, const char *data, int len)
+static void drv_TeakLCM_write(const int row, const int col, const char *data, int len)
 {
     char cmd[3];
 
@@ -188,15 +190,15 @@ static void drv_Sample_write(const int row, const int col, const char *data, int
     cmd[0] = 0x02;
     cmd[1] = row;
     cmd[2] = col;
-    drv_Sample_send(cmd, 3);
+    drv_TeakLCM_send(cmd, 3);
 
     /* send string to the display */
-    drv_Sample_send(data, len);
+    drv_TeakLCM_send(data, len);
 
 }
 
 /* text mode displays only */
-static void drv_Sample_defchar(const int ascii, const unsigned char *matrix)
+static void drv_TeakLCM_defchar(const int ascii, const unsigned char *matrix)
 {
     char cmd[10];
     int i;
@@ -210,48 +212,12 @@ static void drv_Sample_defchar(const int ascii, const unsigned char *matrix)
     for (i = 0; i < 8; i++) {
 	cmd[i + 2] = *matrix++;
     }
-    drv_Sample_send(cmd, 10);
-}
-
-
-/* for graphic displays only */
-static void drv_Sample_blit(const int row, const int col, const int height, const int width)
-{
-    int r, c;
-
-    for (r = row; r < row + height; r++) {
-	for (c = col; c < col + width; c++) {
-	    /* drv_generic_graphic_black() returns 1 if pixel is black */
-	    /* drv_generic_graphic_gray() returns a gray value 0..255 */
-	    /* drv_generic_graphic_rgb() returns a RGB color */
-	    if (drv_generic_graphic_black(r, c)) {
-		/* set bit */
-	    } else {
-		/* clear bit */
-	    }
-	}
-    }
-}
-
-
-/* remove unless you have GPO's */
-static int drv_Sample_GPO(const int num, const int val)
-{
-    char cmd[4];
-
-    /* assume 0x42 to be the 'GPO' command */
-    cmd[0] = 0x42;
-    cmd[1] = num;
-    cmd[2] = (val > 0) ? 1 : 0;
-
-    drv_Sample_send(cmd, 3);
-
-    return 0;
+    drv_TeakLCM_send(cmd, 10);
 }
 
 
 /* example function used in a plugin */
-static int drv_Sample_contrast(int contrast)
+static int drv_TeakLCM_contrast(int contrast)
 {
     char cmd[2];
 
@@ -265,14 +231,14 @@ static int drv_Sample_contrast(int contrast)
     /* assume 0x04 to be the 'set contrast' command */
     cmd[0] = 0x04;
     cmd[1] = contrast;
-    drv_Sample_send(cmd, 2);
+    drv_TeakLCM_send(cmd, 2);
 
     return contrast;
 }
 
 
 /* start text mode display */
-static int drv_Sample_start(const char *section)
+static int drv_TeakLCM_start(const char *section)
 {
     int contrast;
     int rows = -1, cols = -1;
@@ -293,84 +259,21 @@ static int drv_Sample_start(const char *section)
     DROWS = rows;
     DCOLS = cols;
 
-    /* number of GPO's; remove if you don't have them */
-    GPOS = 8;
-
     /* open communication with the display */
-    if (drv_Sample_open(section) < 0) {
+    if (drv_TeakLCM_open(section) < 0) {
 	return -1;
     }
 
     /* reset & initialize display */
     /* assume 0x00 to be a 'reset' command */
     cmd[0] = 0x00;
-    drv_Sample_send(cmd, 0);
+    drv_TeakLCM_send(cmd, 0);
 
     if (cfg_number(section, "Contrast", 0, 0, 255, &contrast) > 0) {
-	drv_Sample_contrast(contrast);
+	drv_TeakLCM_contrast(contrast);
     }
 
-    drv_Sample_clear();		/* clear display */
-
-    return 0;
-}
-
-
-/* start graphic display */
-static int drv_Sample_start2(const char *section)
-{
-    char *s;
-    char cmd[1];
-    int contrast;
-
-    /* read display size from config */
-    s = cfg_get(section, "Size", NULL);
-    if (s == NULL || *s == '\0') {
-	error("%s: no '%s.Size' entry from %s", Name, section, cfg_source());
-	return -1;
-    }
-
-    DROWS = -1;
-    DCOLS = -1;
-    if (sscanf(s, "%dx%d", &DCOLS, &DROWS) != 2 || DCOLS < 1 || DROWS < 1) {
-	error("%s: bad Size '%s' from %s", Name, s, cfg_source());
-	return -1;
-    }
-
-    s = cfg_get(section, "Font", "6x8");
-    if (s == NULL || *s == '\0') {
-	error("%s: no '%s.Font' entry from %s", Name, section, cfg_source());
-	return -1;
-    }
-
-    XRES = -1;
-    YRES = -1;
-    if (sscanf(s, "%dx%d", &XRES, &YRES) != 2 || XRES < 1 || YRES < 1) {
-	error("%s: bad Font '%s' from %s", Name, s, cfg_source());
-	return -1;
-    }
-
-    /* Fixme: provider other fonts someday... */
-    if (XRES != 6 && YRES != 8) {
-	error("%s: bad Font '%s' from %s (only 6x8 at the moment)", Name, s, cfg_source());
-	return -1;
-    }
-
-    /* you surely want to allocate a framebuffer or something... */
-
-    /* open communication with the display */
-    if (drv_Sample_open(section) < 0) {
-	return -1;
-    }
-
-    /* reset & initialize display */
-    /* assume 0x00 to be a 'reset' command */
-    cmd[0] = 0x00;
-    drv_Sample_send(cmd, 1);
-
-    if (cfg_number(section, "Contrast", 0, 0, 255, &contrast) > 0) {
-	drv_Sample_contrast(contrast);
-    }
+    drv_TeakLCM_clear();		/* clear display */
 
     return 0;
 }
@@ -384,7 +287,7 @@ static void plugin_contrast(RESULT * result, RESULT * arg1)
 {
     double contrast;
 
-    contrast = drv_Sample_contrast(R2N(arg1));
+    contrast = drv_TeakLCM_contrast(R2N(arg1));
     SetResult(&result, R_NUMBER, &contrast);
 }
 
@@ -397,7 +300,6 @@ static void plugin_contrast(RESULT * result, RESULT * arg1)
 /* using drv_generic_text_draw(W) */
 /* using drv_generic_text_icon_draw(W) */
 /* using drv_generic_text_bar_draw(W) */
-/* using drv_generic_gpio_draw(W) */
 
 
 /****************************************/
@@ -406,16 +308,16 @@ static void plugin_contrast(RESULT * result, RESULT * arg1)
 
 
 /* list models */
-int drv_Sample_list(void)
+int drv_TeakLCM_list(void)
 {
-    printf("Sample driver");
+    printf("TeakLCM driver");
     return 0;
 }
 
 
 /* initialize driver & display */
 /* use this function for a text display */
-int drv_Sample_init(const char *section, const int quiet)
+int drv_TeakLCM_init(const char *section, const int quiet)
 {
     WIDGET_CLASS wc;
     int ret;
@@ -430,15 +332,12 @@ int drv_Sample_init(const char *section, const int quiet)
     GOTO_COST = 2;		/* number of bytes a goto command requires */
 
     /* real worker functions */
-    drv_generic_text_real_write = drv_Sample_write;
-    drv_generic_text_real_defchar = drv_Sample_defchar;
-
-    /* remove unless you have GPO's */
-    drv_generic_gpio_real_set = drv_Sample_GPO;
+    drv_generic_text_real_write = drv_TeakLCM_write;
+    drv_generic_text_real_defchar = drv_TeakLCM_defchar;
 
 
     /* start display */
-    if ((ret = drv_Sample_start(section)) != 0)
+    if ((ret = drv_TeakLCM_start(section)) != 0)
 	return ret;
 
     if (!quiet) {
@@ -446,7 +345,7 @@ int drv_Sample_init(const char *section, const int quiet)
 	qprintf(buffer, sizeof(buffer), "%s %dx%d", Name, DCOLS, DROWS);
 	if (drv_generic_text_greet(buffer, "www.bwct.de")) {
 	    sleep(3);
-	    drv_Sample_clear();
+	    drv_TeakLCM_clear();
 	}
     }
 
@@ -464,12 +363,6 @@ int drv_Sample_init(const char *section, const int quiet)
 
     /* add fixed chars to the bar driver */
     drv_generic_text_bar_add_segment(0, 0, 255, 32);	/* ASCII  32 = blank */
-
-
-    /* initialize generic GPIO driver */
-    /* remove unless you have GPO's */
-    if ((ret = drv_generic_gpio_init(section, Name)) != 0)
-	return ret;
 
     /* register text widget */
     wc = Widget_Text;
@@ -493,57 +386,18 @@ int drv_Sample_init(const char *section, const int quiet)
 }
 
 
-/* initialize driver & display */
-/* use this function for a graphic display */
-int drv_Sample_init2(const char *section, const int quiet)
-{
-    int ret;
-
-    /* real worker functions */
-    drv_generic_graphic_real_blit = drv_Sample_blit;
-
-    /* remove unless you have GPO's */
-    drv_generic_gpio_real_set = drv_Sample_GPO;
-
-    /* start display */
-    if ((ret = drv_Sample_start2(section)) != 0)
-	return ret;
-
-    /* initialize generic graphic driver */
-    if ((ret = drv_generic_graphic_init(section, Name)) != 0)
-	return ret;
-
-    if (!quiet) {
-	char buffer[40];
-	qprintf(buffer, sizeof(buffer), "%s %dx%d", Name, DCOLS, DROWS);
-	if (drv_generic_graphic_greet(buffer, NULL)) {
-	    sleep(3);
-	    drv_generic_graphic_clear();
-	}
-    }
-
-    /* register plugins */
-    AddFunction("LCD::contrast", 1, plugin_contrast);
-
-    return 0;
-}
-
-
 
 /* close driver & display */
 /* use this function for a text display */
-int drv_Sample_quit(const int quiet)
+int drv_TeakLCM_quit(const int quiet)
 {
 
     info("%s: shutting down.", Name);
 
     drv_generic_text_quit();
 
-    /* remove unless you have GPO's */
-    drv_generic_gpio_quit();
-
     /* clear display */
-    drv_Sample_clear();
+    drv_TeakLCM_clear();
 
     /* say goodbye... */
     if (!quiet) {
@@ -551,51 +405,16 @@ int drv_Sample_quit(const int quiet)
     }
 
     debug("closing connection");
-    drv_Sample_close();
+    drv_TeakLCM_close();
 
     return (0);
 }
-
-/* close driver & display */
-/* use this function for a graphic display */
-int drv_Sample_quit2(const int quiet)
-{
-
-    info("%s: shutting down.", Name);
-
-    /* clear display */
-    drv_generic_graphic_clear();
-
-    /* remove unless you have GPO's */
-    drv_generic_gpio_quit();
-
-    /* say goodbye... */
-    if (!quiet) {
-	drv_generic_graphic_greet("goodbye!", NULL);
-    }
-
-    drv_generic_graphic_quit();
-
-    debug("closing connection");
-    drv_Sample_close();
-
-    return (0);
-}
-
 
 /* use this one for a text display */
-DRIVER drv_Sample = {
+DRIVER drv_TeakLCM = {
     .name = Name,
-    .list = drv_Sample_list,
-    .init = drv_Sample_init,
-    .quit = drv_Sample_quit,
+    .list = drv_TeakLCM_list,
+    .init = drv_TeakLCM_init,
+    .quit = drv_TeakLCM_quit,
 };
 
-
-/* use this one for a graphic display */
-DRIVER drv_Sample2 = {
-    .name = Name,
-    .list = drv_Sample_list,
-    .init = drv_Sample_init2,
-    .quit = drv_Sample_quit2,
-};
