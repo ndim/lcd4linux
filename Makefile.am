@@ -10,6 +10,7 @@ bin_PROGRAMS = lcd4linux
 
 # Fixme: -W should be renamed to -Wextra someday...
 AM_CFLAGS = -D_GNU_SOURCE -Wall -Wextra -fno-strict-aliasing
+AM_CFLAGS += -DSYSCONFDIR='"$(sysconfdir)"'
 
 LIBTOOL=libtool
 ACLOCAL_AMFLAGS=-I m4
