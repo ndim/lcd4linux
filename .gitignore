@@ -6,6 +6,7 @@ Makefile.in
 /config.h.in
 /config.sub
 /configure
+/INSTALL
 /install-sh
 /ltmain.sh
 /missing
