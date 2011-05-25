@@ -3,7 +3,6 @@
 
 # Process this file with automake to produce Makefile.in
 
-AUTOMAKE_OPTIONS = gnu
 CLEANFILES = *~
 
 bin_PROGRAMS = lcd4linux
