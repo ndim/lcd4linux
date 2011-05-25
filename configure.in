@@ -108,10 +108,10 @@ fi
 AC_CHECK_HEADERS([asm/io.h] [linux/parport.h linux/ppdev.h], [has_parport="true"], [has_parport="false"])
 
 # drivers
-sinclude(drivers.m4)
+sinclude([drivers.m4])
 
 # plugins
-sinclude(plugins.m4)
+sinclude([plugins.m4])
 
 # Checks for header files.
 AC_HEADER_DIRENT
