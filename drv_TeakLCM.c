@@ -64,46 +64,46 @@ static int Mode = 0;
  * Magic defines
  */
 
-#define CONNECT         0x05
-#define DISCONNECT      0x06
-#define ALARM           0x07
-#define WRITE           0x08
-#define PRINT1          0x09
-#define PRINT2          0x0A
-#define ACK             0x0B
-#define NACK            0x0C
-#define CONFIRM         0x0D
-#define RESET           0x0E
+#define CMD_CONNECT         0x05
+#define CMD_DISCONNECT      0x06
+#define CMD_ALARM           0x07
+#define CMD_WRITE           0x08
+#define CMD_PRINT1          0x09
+#define CMD_PRINT2          0x0A
+#define CMD_ACK             0x0B
+#define CMD_NACK            0x0C
+#define CMD_CONFIRM         0x0D
+#define CMD_RESET           0x0E
 
-#define LCM_CLEAR       0x21
-#define LCM_HOME        0x22
-#define LCM_CURSOR_SHIFT_R 0x23
-#define LCM_CURSOR_SHIFT_L 0x24
-#define BACKLIGHT_ON   0x25
-#define BACKLIGHT_OFF  0x26
-#define LCM_LINE2      0x27
+#define LCM_CLEAR           0x21
+#define LCM_HOME            0x22
+#define LCM_CURSOR_SHIFT_R  0x23
+#define LCM_CURSOR_SHIFT_L  0x24
+#define LCM_BACKLIGHT_ON    0x25
+#define LCM_BACKLIGHT_OFF   0x26
+#define LCM_LINE2           0x27
 #define LCM_DISPLAY_SHIFT_R 0x28
 #define LCM_DISPLAY_SHIFT_L 0x29
-#define LCM_CURSOR_ON  0x2A
-#define LCM_CURSOR_OFF 0x2B
-#define LCM_CURSOR_BLINK 0x2C
-#define LCM_DISPLAY_ON 0x2D
-#define LCM_DISPLAY_OFF 0x2E
+#define LCM_CURSOR_ON       0x2A
+#define LCM_CURSOR_OFF      0x2B
+#define LCM_CURSOR_BLINK    0x2C
+#define LCM_DISPLAY_ON      0x2D
+#define LCM_DISPLAY_OFF     0x2E
 
-#define FRAME_MASK      0xFF
-#define TIMEOUT         2
-#define ESC             0x1B
+#define LCM_FRAME_MASK      0xFF
+#define LCM_TIMEOUT         2
+#define LCM_ESC             0x1B
 
-#define KEY1            0x31
-#define KEY2            0x32
-#define KEY3            0x33
-#define KEY4            0x34
-#define KEY12           0x35
-#define KEY13           0x36
-#define KEY14           0x37
-#define KEY23           0x38
-#define KEY24           0x39
-#define KEY34           0x3A
+#define LCM_KEY1            0x31
+#define LCM_KEY2            0x32
+#define LCM_KEY3            0x33
+#define LCM_KEY4            0x34
+#define LCM_KEY12           0x35
+#define LCM_KEY13           0x36
+#define LCM_KEY14           0x37
+#define LCM_KEY23           0x38
+#define LCM_KEY24           0x39
+#define LCM_KEY34           0x3A
 
 
 /****************************************/
@@ -111,29 +111,32 @@ static int Mode = 0;
 /****************************************/
 
 /* Send a command frame to the board */
-static void drv_TeakLCM_send_cmd_frame(unsigned char cmd) {
+static void drv_TeakLCM_send_cmd_frame(unsigned char cmd)
+{
     char cmd_buf[3];
-    cmd_buf[0]= FRAME_MASK;
-    cmd_buf[1]= cmd;
-    cmd_buf[2]= FRAME_MASK;
+    cmd_buf[0] = LCM_FRAME_MASK;
+    cmd_buf[1] = cmd;
+    cmd_buf[2] = LCM_FRAME_MASK;
     drv_generic_serial_write(cmd_buf, 3);
 }
 
 
 /* Initialize the LCM by completing the handshake */
-static void drv_TeakLCM_connect(){
+static void drv_TeakLCM_connect()
+{
     Mode = 0;
     char buffer[3];
-    drv_TeakLCM_send_cmd_frame(RESET);
+    drv_TeakLCM_send_cmd_frame(CMD_RESET);
 
-    if ((drv_generic_serial_read(buffer, 3) != 3) || (buffer[0] != FRAME_MASK) || (buffer[2] != FRAME_MASK)
-        ) {
-        error("%s: Error during handshake", Name);
+    if ((drv_generic_serial_read(buffer, 3) != 3)
+	|| (buffer[0] != LCM_FRAME_MASK)
+	|| (buffer[2] != LCM_FRAME_MASK)
+	) {
+	error("%s: Error during handshake", Name);
     }
-    if (buffer[1] == CONNECT)
-    {
-        Mode = 1;
-        drv_TeakLCM_send_cmd_frame(ACK);
+    if (buffer[1] == CMD_CONNECT) {
+	Mode = 1;
+	drv_TeakLCM_send_cmd_frame(CMD_ACK);
     }
 
 }
@@ -273,7 +276,7 @@ static int drv_TeakLCM_start(const char *section)
 	drv_TeakLCM_contrast(contrast);
     }
 
-    drv_TeakLCM_clear();		/* clear display */
+    drv_TeakLCM_clear();	/* clear display */
 
     return 0;
 }
@@ -417,4 +420,3 @@ DRIVER drv_TeakLCM = {
     .init = drv_TeakLCM_init,
     .quit = drv_TeakLCM_quit,
 };
-
