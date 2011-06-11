@@ -60,20 +60,23 @@ static char Name[] = "TeakLCM";
 static int Mode = 0;
 
 
+typedef enum {
+    CMD_CONNECT         = 0x05,
+    CMD_DISCONNECT      = 0x06,
+    CMD_ALARM           = 0x07,
+    CMD_WRITE           = 0x08,
+    CMD_PRINT1          = 0x09,
+    CMD_PRINT2          = 0x0A,
+    CMD_ACK             = 0x0B,
+    CMD_NACK            = 0x0C,
+    CMD_CONFIRM         = 0x0D,
+    CMD_RESET           = 0x0E
+} lcm_cmd_t;
+
+
 /*
  * Magic defines
  */
-
-#define CMD_CONNECT         0x05
-#define CMD_DISCONNECT      0x06
-#define CMD_ALARM           0x07
-#define CMD_WRITE           0x08
-#define CMD_PRINT1          0x09
-#define CMD_PRINT2          0x0A
-#define CMD_ACK             0x0B
-#define CMD_NACK            0x0C
-#define CMD_CONFIRM         0x0D
-#define CMD_RESET           0x0E
 
 #define LCM_CLEAR           0x21
 #define LCM_HOME            0x22
@@ -111,7 +114,7 @@ static int Mode = 0;
 /****************************************/
 
 /* Send a command frame to the board */
-static void drv_TeakLCM_send_cmd_frame(unsigned char cmd)
+static void drv_TeakLCM_send_cmd_frame(lcm_cmd_t cmd)
 {
     char cmd_buf[3];
     cmd_buf[0] = LCM_FRAME_MASK;
@@ -125,10 +128,10 @@ static void drv_TeakLCM_send_cmd_frame(unsigned char cmd)
 static void drv_TeakLCM_connect()
 {
     Mode = 0;
-    char buffer[3];
+    unsigned char buffer[3];
     drv_TeakLCM_send_cmd_frame(CMD_RESET);
 
-    if ((drv_generic_serial_read(buffer, 3) != 3)
+    if ((drv_generic_serial_read((void *)buffer, 3) != 3)
 	|| (buffer[0] != LCM_FRAME_MASK)
 	|| (buffer[2] != LCM_FRAME_MASK)
 	) {
@@ -162,12 +165,21 @@ static int drv_TeakLCM_close(void)
     return 0;
 }
 
+
 /* dummy function that sends something to the display */
 static void drv_TeakLCM_send(const char *data, const unsigned int len)
 {
     /* send data to the serial port is easy... */
     drv_generic_serial_write(data, len);
+}
 
+
+static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
+{
+    char buf[13];
+    buf[3] = cmd;
+    buf[5] = *((char *)(data));
+    drv_TeakLCM_send(buf, len);
 }
 
 
@@ -186,18 +198,17 @@ static void drv_TeakLCM_clear(void)
 /* text mode displays only */
 static void drv_TeakLCM_write(const int row, const int col, const char *data, int len)
 {
-    char cmd[3];
+    drv_TeakLCM_send_cmd_frame((row == 0)?LCM_HOME:LCM_LINE2);
 
-    /* do the cursor positioning here */
-    /* assume 0x02 to be a 'Goto' command */
-    cmd[0] = 0x02;
-    cmd[1] = row;
-    cmd[2] = col;
-    drv_TeakLCM_send(cmd, 3);
+    int i;
+    for (i=0; i<col; ++i) {
+        drv_TeakLCM_send_cmd_frame(LCM_CURSOR_SHIFT_R);
+    }
+
+    drv_TeakLCM_send_data_frame(CMD_WRITE, data, len);
 
     /* send string to the display */
     drv_TeakLCM_send(data, len);
-
 }
 
 /* text mode displays only */
@@ -268,13 +279,13 @@ static int drv_TeakLCM_start(const char *section)
     }
 
     /* reset & initialize display */
-    /* assume 0x00 to be a 'reset' command */
-    cmd[0] = 0x00;
-    drv_TeakLCM_send(cmd, 0);
+    drv_TeakLCM_connect();
 
+#if 0
     if (cfg_number(section, "Contrast", 0, 0, 255, &contrast) > 0) {
 	drv_TeakLCM_contrast(contrast);
     }
+#endif
 
     drv_TeakLCM_clear();	/* clear display */
 
@@ -286,6 +297,7 @@ static int drv_TeakLCM_start(const char *section)
 /***            plugins               ***/
 /****************************************/
 
+#if 0
 static void plugin_contrast(RESULT * result, RESULT * arg1)
 {
     double contrast;
@@ -293,6 +305,7 @@ static void plugin_contrast(RESULT * result, RESULT * arg1)
     contrast = drv_TeakLCM_contrast(R2N(arg1));
     SetResult(&result, R_NUMBER, &contrast);
 }
+#endif
 
 
 /****************************************/
@@ -329,10 +342,10 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 
     /* display preferences */
     XRES = 5;			/* pixel width of one char  */
-    YRES = 8;			/* pixel height of one char  */
-    CHARS = 8;			/* number of user-defineable characters */
+    YRES = 7;			/* pixel height of one char  */
+    CHARS = 0;			/* number of user-defineable characters */
     CHAR0 = 0;			/* ASCII of first user-defineable char */
-    GOTO_COST = 2;		/* number of bytes a goto command requires */
+    GOTO_COST = 3;		/* number of bytes a goto command requires */
 
     /* real worker functions */
     drv_generic_text_real_write = drv_TeakLCM_write;
@@ -356,6 +369,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     if ((ret = drv_generic_text_init(section, Name)) != 0)
 	return ret;
 
+#if 0
     /* initialize generic icon driver */
     if ((ret = drv_generic_text_icon_init()) != 0)
 	return ret;
@@ -366,12 +380,14 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 
     /* add fixed chars to the bar driver */
     drv_generic_text_bar_add_segment(0, 0, 255, 32);	/* ASCII  32 = blank */
+#endif
 
     /* register text widget */
     wc = Widget_Text;
     wc.draw = drv_generic_text_draw;
     widget_register(&wc);
 
+#if 0
     /* register icon widget */
     wc = Widget_Icon;
     wc.draw = drv_generic_text_icon_draw;
@@ -384,6 +400,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 
     /* register plugins */
     AddFunction("LCD::contrast", 1, plugin_contrast);
+#endif
 
     return 0;
 }
@@ -420,3 +437,9 @@ DRIVER drv_TeakLCM = {
     .init = drv_TeakLCM_init,
     .quit = drv_TeakLCM_quit,
 };
+
+/*
+ * Local Variables:
+ * c-basic-offset: 4
+ * End:
+ */
