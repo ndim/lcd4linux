@@ -55,9 +55,50 @@
 #include "drv_generic_text.h"
 #include "drv_generic_serial.h"
 
+
 static char Name[] = "TeakLCM";
 
-static int Mode = 0;
+
+/** Return a printable character */
+static char printable(const char ch)
+{
+    if ((32 <= ch) && (ch < 127)) {
+	return ch;
+    } else {
+	return '.';
+    }
+}
+
+
+static void debug_data(const char *prefix, const void *data, const size_t size)
+{
+    const u_int8_t *b = (const u_int8_t *)data;
+    size_t y;
+    for (y=0; y<size; y+=16) {
+	char buf[80];
+	size_t x;
+	ssize_t idx = 0;
+	idx += sprintf(&(buf[idx]), "%04x ", y);
+	for (x=0; x<16; x++) {
+	    const size_t i = x+y;
+	    if (i<size) {
+		idx += sprintf(&(buf[idx]), " %02x", b[i]);
+	    } else {
+		idx += sprintf(&(buf[idx]), "   ");
+	    }
+	}
+	idx += sprintf(&buf[idx], "  ");
+	for (x=0; x<16; x++) {
+	    const size_t i = x+y;
+	    if (i<size) {
+		idx += sprintf(&buf[idx], "%c", printable(b[i]));
+	    } else {
+		idx += sprintf(&buf[idx], " ");
+	    }
+	}
+	debug("%s%s", prefix, buf);
+    }
+}
 
 
 typedef enum {
@@ -74,10 +115,28 @@ typedef enum {
 } lcm_cmd_t;
 
 
+const char *cmdstr(const lcm_cmd_t cmd) {
+    switch (cmd) {
+#define D(CMD) case CMD_ ## CMD: return "CMD_" # CMD; break;
+	D(CONNECT);
+	D(DISCONNECT);
+	D(ACK);
+	D(NACK);
+	D(CONFIRM);
+	D(RESET);
+	D(ALARM);
+	D(WRITE);
+	D(PRINT1);
+	D(PRINT2);
+#undef D
+    }
+    return "CMD_UNKNOWN";
+}
+
+
 /*
  * Magic defines
  */
-
 #define LCM_CLEAR           0x21
 #define LCM_HOME            0x22
 #define LCM_CURSOR_SHIFT_R  0x23
@@ -113,23 +172,92 @@ typedef enum {
 /***  hardware dependant functions    ***/
 /****************************************/
 
+
 /* Send a command frame to the board */
-static void drv_TeakLCM_send_cmd_frame(lcm_cmd_t cmd)
+static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 {
     char cmd_buf[3];
     cmd_buf[0] = LCM_FRAME_MASK;
     cmd_buf[1] = cmd;
     cmd_buf[2] = LCM_FRAME_MASK;
+    debug_data("snd ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
+}
+
+
+/* global LCM state machine */
+typedef enum { MODE_0, MODE_1, MODE_IDLE } lcm_mode_t;
+static lcm_mode_t lcm_mode = MODE_0;
+
+
+const char *modestr(const lcm_mode_t mode) {
+    switch (mode) {
+    case MODE_0: return "MODE 0"; break;
+    case MODE_1: return "MODE 1"; break;
+    case MODE_IDLE: return "IDLE"; break;
+    }
+    return "MODE_UNKNOWN";
+}
+
+
+static void lcm_handle_cmd(lcm_cmd_t cmd)
+{
+    switch (lcm_mode) {
+    case MODE_0:
+    case MODE_1:
+	switch (cmd) {
+	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK); break;
+	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); break;
+	case CMD_CONFIRM: lcm_mode = MODE_IDLE; break;
+	default:
+	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
+	    break;
+	}
+	break;
+    case MODE_IDLE:
+	switch (cmd) {
+	case CMD_ACK: lcm_send_cmd_frame(CMD_CONFIRM); break;
+	case CMD_DISCONNECT: lcm_send_cmd_frame(CMD_ACK); break;
+	default:
+	    error("%s: Unhandled cmd %d in state %d", Name, cmd, lcm_mode);
+	    break;
+	}
+	break;
+    }
+}
+
+
+static int lcm_expect_cmd(lcm_cmd_t cmd)
+{
+    /* give LCM 100ms time to reply */
+    usleep(100000);
+    static unsigned char buf[3];
+
+    int retchar = drv_generic_serial_read((void *)buf, 3);
+
+    if (retchar != 3) {
+	debug("%s: No %s cmd received", Name, cmdstr(cmd));
+	return 0;
+    } else if ((buf[0] != LCM_FRAME_MASK) ||
+	       (buf[2] != LCM_FRAME_MASK)) {
+	debug("%s: Invalid cmd received waiting for %d", Name, cmd);
+	return 0;
+    }
+    lcm_handle_cmd(buf[1]);
+    if (buf[1] == cmd) {
+	return 1;
+    } else {
+	return 0;
+    }
 }
 
 
 /* Initialize the LCM by completing the handshake */
 static void drv_TeakLCM_connect()
 {
-    Mode = 0;
+    lcm_mode = MODE_0;
     unsigned char buffer[3];
-    drv_TeakLCM_send_cmd_frame(CMD_RESET);
+    lcm_send_cmd_frame(CMD_RESET);
     usleep(100000);
 
     if ((drv_generic_serial_read((void *)buffer, 3) != 3)
@@ -139,9 +267,9 @@ static void drv_TeakLCM_connect()
 	error("%s: Error during handshake", Name);
     }
     if (buffer[1] == CMD_CONNECT) {
-	Mode = 1;
+	lcm_mode = MODE_1;
 	debug("%s: Got CMD_CONNECT, sending CMD_ACK", Name);
-	drv_TeakLCM_send_cmd_frame(CMD_ACK);
+	lcm_send_cmd_frame(CMD_ACK);
     }
 
 }
@@ -238,7 +366,6 @@ static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const u
 	frame[fi++] = v;			       \
     } while (0)
     
-    fi = 4;
     for (fi=4, di=0; di<len; di++) {
 	APPEND(data[di]);
     }
@@ -249,7 +376,8 @@ static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const u
 
     frame[fi++] = LCM_FRAME_MASK;
 
-    drv_generic_serial_write(frame, len);
+    debug_data("snd ", frame, fi);
+    drv_generic_serial_write(frame, fi);
 
 #undef LO8
 #undef HI8
@@ -261,20 +389,21 @@ static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const u
 static void drv_TeakLCM_clear(void)
 {
     /* do whatever is necessary to clear the display */
-    drv_TeakLCM_send_cmd_frame(LCM_CLEAR);
+    lcm_send_cmd_frame(LCM_CLEAR);
+    lcm_expect_cmd(CMD_ACK);
 }
 
 
 /* text mode displays only */
 static void drv_TeakLCM_write(const int row, const int col, const char *data, int len)
 {
-    debug("%s: %s row=%d col=%d len=%d data=%s", Name, __FUNCTION__,
+    debug("%s row=%d col=%d len=%d data=\"%s\"", __FUNCTION__,
 	  row, col, len, data);
-    drv_TeakLCM_send_cmd_frame((row == 0)?LCM_HOME:LCM_LINE2);
+    lcm_send_cmd_frame((row == 0)?LCM_HOME:LCM_LINE2);
 
     int i;
     for (i=0; i<col; ++i) {
-        drv_TeakLCM_send_cmd_frame(LCM_CURSOR_SHIFT_R);
+        lcm_send_cmd_frame(LCM_CURSOR_SHIFT_R);
     }
 
     drv_TeakLCM_send_data_frame(CMD_WRITE, data, len);
@@ -365,7 +494,7 @@ static int drv_TeakLCM_start(const char *section)
 #endif
 
     drv_TeakLCM_clear();	/* clear display */
-    drv_TeakLCM_send_cmd_frame(LCM_BACKLIGHT_ON);
+    lcm_send_cmd_frame(LCM_BACKLIGHT_ON);
 
     debug("%s: %s done", Name, __FUNCTION__);
     return 0;
@@ -505,7 +634,7 @@ int drv_TeakLCM_quit(const int quiet)
 	drv_generic_text_greet("goodbye!", NULL);
     }
 
-    drv_TeakLCM_send_cmd_frame(LCM_BACKLIGHT_OFF);
+    lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
 
     debug("closing connection");
     drv_TeakLCM_close();
