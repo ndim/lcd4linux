@@ -130,6 +130,7 @@ static void drv_TeakLCM_connect()
     Mode = 0;
     unsigned char buffer[3];
     drv_TeakLCM_send_cmd_frame(CMD_RESET);
+    usleep(100000);
 
     if ((drv_generic_serial_read((void *)buffer, 3) != 3)
 	|| (buffer[0] != LCM_FRAME_MASK)
@@ -139,6 +140,7 @@ static void drv_TeakLCM_connect()
     }
     if (buffer[1] == CMD_CONNECT) {
 	Mode = 1;
+	debug("%s: Got CMD_CONNECT, sending CMD_ACK", Name);
 	drv_TeakLCM_send_cmd_frame(CMD_ACK);
     }
 
@@ -231,6 +233,7 @@ static void drv_TeakLCM_defchar(const int ascii, const unsigned char *matrix)
 
 
 /* example function used in a plugin */
+#if 0
 static int drv_TeakLCM_contrast(int contrast)
 {
     char cmd[2];
@@ -249,15 +252,16 @@ static int drv_TeakLCM_contrast(int contrast)
 
     return contrast;
 }
-
+#endif
 
 /* start text mode display */
 static int drv_TeakLCM_start(const char *section)
 {
+#if 0
     int contrast;
+#endif
     int rows = -1, cols = -1;
     char *s;
-    char cmd[1];
 
     s = cfg_get(section, "Size", NULL);
     if (s == NULL || *s == '\0') {
@@ -269,9 +273,10 @@ static int drv_TeakLCM_start(const char *section)
 	free(s);
 	return -1;
     }
-
+ 
     DROWS = rows;
     DCOLS = cols;
+
 
     /* open communication with the display */
     if (drv_TeakLCM_open(section) < 0) {
@@ -288,6 +293,7 @@ static int drv_TeakLCM_start(const char *section)
 #endif
 
     drv_TeakLCM_clear();	/* clear display */
+    drv_TeakLCM_send_cmd_frame(LCM_BACKLIGHT_ON);
 
     return 0;
 }
@@ -423,6 +429,8 @@ int drv_TeakLCM_quit(const int quiet)
     if (!quiet) {
 	drv_generic_text_greet("goodbye!", NULL);
     }
+
+    drv_TeakLCM_send_cmd_frame(LCM_BACKLIGHT_OFF);
 
     debug("closing connection");
     drv_TeakLCM_close();
