@@ -326,7 +326,7 @@ static u_int16_t CRC16Buf(unsigned int count, unsigned char *buffer)
 #endif
 
 
-static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
+static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
 {
     unsigned int di; /* data index */
     unsigned int fi; /* frame index */
@@ -369,7 +369,6 @@ static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const u
     for (fi=4, di=0; di<len; di++) {
 	APPEND(data[di]);
     }
-    APPEND(data[di]);
 
     APPEND_NOCRC(HI8(crc));
     APPEND_NOCRC(LO8(crc));
@@ -394,19 +393,29 @@ static void drv_TeakLCM_clear(void)
 }
 
 
+/* shadow buffer */
+char *shadow;
+
+
 /* text mode displays only */
 static void drv_TeakLCM_write(const int row, const int col, const char *data, int len)
 {
     debug("%s row=%d col=%d len=%d data=\"%s\"", __FUNCTION__,
 	  row, col, len, data);
-    lcm_send_cmd_frame((row == 0)?LCM_HOME:LCM_LINE2);
 
+#if 0
     int i;
     for (i=0; i<col; ++i) {
         lcm_send_cmd_frame(LCM_CURSOR_SHIFT_R);
     }
+#endif
 
-    drv_TeakLCM_send_data_frame(CMD_WRITE, data, len);
+    memcpy(&shadow[DCOLS*row+col], data, len);
+
+    debug_data("shadow ", shadow, DCOLS*DROWS);
+
+    lcm_send_data_frame((row == 0)?CMD_PRINT1:CMD_PRINT2,
+			&shadow[DCOLS*row], DCOLS);
 }
 
 
@@ -475,6 +484,8 @@ static int drv_TeakLCM_start(const char *section)
     DROWS = rows;
     DCOLS = cols;
     debug("%s: FOOO", Name);
+    shadow = malloc(DROWS*DCOLS);
+    memset(shadow, 32, DROWS*DCOLS);
 
     /* open communication with the display */
     if (drv_TeakLCM_open(section) < 0) {
@@ -553,7 +564,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     YRES = 7;			/* pixel height of one char  */
     CHARS = 0;			/* number of user-defineable characters */
     CHAR0 = 0;			/* ASCII of first user-defineable char */
-    GOTO_COST = 3;		/* number of bytes a goto command requires */
+    GOTO_COST = -1;		/* number of bytes a goto command requires */
 
     /* real worker functions */
     drv_generic_text_real_write = drv_TeakLCM_write;
