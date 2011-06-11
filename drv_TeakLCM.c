@@ -168,38 +168,108 @@ static int drv_TeakLCM_close(void)
 }
 
 
-/* dummy function that sends something to the display */
-static void drv_TeakLCM_send(const char *data, const unsigned int len)
+// drv_generic_serial_write(data, len);
+
+static u_int16_t CRC16(u_int8_t value, u_int16_t crcin)
 {
-    /* send data to the serial port is easy... */
-    drv_generic_serial_write(data, len);
+    u_int16_t k = (((crcin >> 8) ^ value) & 255) << 8;
+    u_int16_t crc = 0;
+    int bits;
+    for (bits=8; bits; --bits) {
+	if ((crc ^ k) & 0x8000)
+	    crc = (crc << 1) ^ 0x1021;
+	else
+	    crc <<= 1;
+	k <<= 1;
+    }
+    return ((crcin << 8) ^ crc);
 }
+
+#if 0
+static u_int16_t CRC16Buf(unsigned int count, unsigned char *buffer)
+{
+    u_int16_t crc = 0;
+    do {
+	u_int8_t value = *buffer++;
+	crc = CRC16(value, crc);
+    } while (--count);
+    return crc;
+}
+#endif
 
 
 static void drv_TeakLCM_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
 {
-    char buf[13];
-    buf[3] = cmd;
-    buf[5] = *((char *)(data));
-    drv_TeakLCM_send(buf, len);
+    unsigned int di; /* data index */
+    unsigned int fi; /* frame index */
+    static char frame[32];
+    u_int16_t crc = 0;
+
+    frame[0] = LCM_FRAME_MASK;
+
+    frame[1] = cmd;
+    crc = CRC16(frame[1], crc);
+
+#define HI8(value) ((unsigned char)(((value)>>8) & 0xff))
+#define LO8(value) ((unsigned char)((value) & 0xff))
+
+    frame[2] = HI8(len);
+    crc = CRC16(frame[2], crc);
+
+    frame[3] = LO8(len);
+    crc = CRC16(frame[3], crc);
+
+#define APPEND(value)				       \
+    do {					       \
+	const unsigned char v = (value);	       \
+	if ((v == LCM_FRAME_MASK) || (v == LCM_ESC)) { \
+	    frame[fi++] = LCM_ESC;		       \
+	}					       \
+	frame[fi++] = v;			       \
+	crc = CRC16(v, crc);			       \
+    } while (0)
+
+#define APPEND_NOCRC(value)			       \
+    do {					       \
+	const unsigned char v = (value);	       \
+	if ((v == LCM_FRAME_MASK) || (v == LCM_ESC)) { \
+	    frame[fi++] = LCM_ESC;		       \
+	}					       \
+	frame[fi++] = v;			       \
+    } while (0)
+    
+    fi = 4;
+    for (fi=4, di=0; di<len; di++) {
+	APPEND(data[di]);
+    }
+    APPEND(data[di]);
+
+    APPEND_NOCRC(HI8(crc));
+    APPEND_NOCRC(LO8(crc));
+
+    frame[fi++] = LCM_FRAME_MASK;
+
+    drv_generic_serial_write(frame, len);
+
+#undef LO8
+#undef HI8
+#undef APPEND
 }
 
 
 /* text mode displays only */
 static void drv_TeakLCM_clear(void)
 {
-    char cmd[1];
-
     /* do whatever is necessary to clear the display */
-    /* assume 0x01 to be a 'clear display' command */
-    cmd[0] = 0x01;
-    drv_TeakLCM_send(cmd, 1);
+    drv_TeakLCM_send_cmd_frame(LCM_CLEAR);
 }
 
 
 /* text mode displays only */
 static void drv_TeakLCM_write(const int row, const int col, const char *data, int len)
 {
+    debug("%s: %s row=%d col=%d len=%d data=%s", Name, __FUNCTION__,
+	  row, col, len, data);
     drv_TeakLCM_send_cmd_frame((row == 0)?LCM_HOME:LCM_LINE2);
 
     int i;
@@ -208,12 +278,11 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
     }
 
     drv_TeakLCM_send_data_frame(CMD_WRITE, data, len);
-
-    /* send string to the display */
-    drv_TeakLCM_send(data, len);
 }
 
+
 /* text mode displays only */
+#if 0
 static void drv_TeakLCM_defchar(const int ascii, const unsigned char *matrix)
 {
     char cmd[10];
@@ -230,7 +299,7 @@ static void drv_TeakLCM_defchar(const int ascii, const unsigned char *matrix)
     }
     drv_TeakLCM_send(cmd, 10);
 }
-
+#endif
 
 /* example function used in a plugin */
 #if 0
@@ -276,15 +345,18 @@ static int drv_TeakLCM_start(const char *section)
  
     DROWS = rows;
     DCOLS = cols;
-
+    debug("%s: FOOO", Name);
 
     /* open communication with the display */
     if (drv_TeakLCM_open(section) < 0) {
 	return -1;
     }
+    debug("%s: %s opened", Name, __FUNCTION__);
 
     /* reset & initialize display */
     drv_TeakLCM_connect();
+
+    debug("%s: %s connected", Name, __FUNCTION__);
 
 #if 0
     if (cfg_number(section, "Contrast", 0, 0, 255, &contrast) > 0) {
@@ -295,6 +367,7 @@ static int drv_TeakLCM_start(const char *section)
     drv_TeakLCM_clear();	/* clear display */
     drv_TeakLCM_send_cmd_frame(LCM_BACKLIGHT_ON);
 
+    debug("%s: %s done", Name, __FUNCTION__);
     return 0;
 }
 
@@ -355,7 +428,9 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 
     /* real worker functions */
     drv_generic_text_real_write = drv_TeakLCM_write;
+#if 0
     drv_generic_text_real_defchar = drv_TeakLCM_defchar;
+#endif
 
 
     /* start display */
@@ -365,7 +440,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     if (!quiet) {
 	char buffer[40];
 	qprintf(buffer, sizeof(buffer), "%s %dx%d", Name, DCOLS, DROWS);
-	if (drv_generic_text_greet(buffer, "www.bwct.de")) {
+	if (drv_generic_text_greet(buffer, "Moo!")) {
 	    sleep(3);
 	    drv_TeakLCM_clear();
 	}
