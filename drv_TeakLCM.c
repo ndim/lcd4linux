@@ -111,12 +111,27 @@ typedef enum {
     CMD_ACK             = 0x0B,
     CMD_NACK            = 0x0C,
     CMD_CONFIRM         = 0x0D,
-    CMD_RESET           = 0x0E
+    CMD_RESET           = 0x0E,
+
+    LCM_CLEAR           = 0x21,
+    LCM_HOME            = 0x22,
+    LCM_CURSOR_SHIFT_R  = 0x23,
+    LCM_CURSOR_SHIFT_L  = 0x24,
+    LCM_BACKLIGHT_ON    = 0x25,
+    LCM_BACKLIGHT_OFF   = 0x26,
+    LCM_LINE2           = 0x27,
+    LCM_DISPLAY_SHIFT_R = 0x28,
+    LCM_DISPLAY_SHIFT_L = 0x29,
+    LCM_CURSOR_ON       = 0x2A,
+    LCM_CURSOR_OFF      = 0x2B,
+    LCM_CURSOR_BLINK    = 0x2C,
+    LCM_DISPLAY_ON      = 0x2D,
+    LCM_DISPLAY_OFF     = 0x2E
 } lcm_cmd_t;
 
 
 const char *cmdstr(const lcm_cmd_t cmd) {
-    switch (cmd) {
+   switch (cmd) {
 #define D(CMD) case CMD_ ## CMD: return "CMD_" # CMD; break;
 	D(CONNECT);
 	D(DISCONNECT);
@@ -129,6 +144,22 @@ const char *cmdstr(const lcm_cmd_t cmd) {
 	D(PRINT1);
 	D(PRINT2);
 #undef D
+#define D(CMD) case LCM_ ## CMD: return "LCM_" # CMD; break;
+	D(CLEAR);
+	D(HOME);
+	D(CURSOR_SHIFT_R);
+	D(CURSOR_SHIFT_L);
+	D(BACKLIGHT_ON);
+	D(BACKLIGHT_OFF);
+	D(LINE2);
+	D(DISPLAY_SHIFT_R);
+	D(DISPLAY_SHIFT_L);
+	D(CURSOR_ON);
+	D(CURSOR_OFF);
+	D(CURSOR_BLINK);
+	D(DISPLAY_ON);
+	D(DISPLAY_OFF);
+#undef D
     }
     return "CMD_UNKNOWN";
 }
@@ -137,20 +168,6 @@ const char *cmdstr(const lcm_cmd_t cmd) {
 /*
  * Magic defines
  */
-#define LCM_CLEAR           0x21
-#define LCM_HOME            0x22
-#define LCM_CURSOR_SHIFT_R  0x23
-#define LCM_CURSOR_SHIFT_L  0x24
-#define LCM_BACKLIGHT_ON    0x25
-#define LCM_BACKLIGHT_OFF   0x26
-#define LCM_LINE2           0x27
-#define LCM_DISPLAY_SHIFT_R 0x28
-#define LCM_DISPLAY_SHIFT_L 0x29
-#define LCM_CURSOR_ON       0x2A
-#define LCM_CURSOR_OFF      0x2B
-#define LCM_CURSOR_BLINK    0x2C
-#define LCM_DISPLAY_ON      0x2D
-#define LCM_DISPLAY_OFF     0x2E
 
 #define LCM_FRAME_MASK      0xFF
 #define LCM_TIMEOUT         2
