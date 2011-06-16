@@ -506,6 +506,7 @@ static int drv_TeakLCM_start(const char *section)
 
     drv_TeakLCM_clear();	/* clear display */
     lcm_send_cmd_frame(LCM_BACKLIGHT_ON);
+    lcm_send_cmd_frame(LCM_DISPLAY_ON);
 
     debug("%s: %s done", Name, __FUNCTION__);
     return 0;
@@ -645,6 +646,7 @@ int drv_TeakLCM_quit(const int quiet)
 	drv_generic_text_greet("goodbye!", NULL);
     }
 
+    lcm_send_cmd_frame(LCM_DISPLAY_OFF);
     lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
 
     debug("closing connection");
