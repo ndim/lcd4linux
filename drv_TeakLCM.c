@@ -59,6 +59,39 @@
 static char Name[] = "TeakLCM";
 
 
+#define HI8(value) ((unsigned char)(((value)>>8) & 0xff))
+#define LO8(value) ((unsigned char)((value) & 0xff))
+
+
+static u_int16_t CRC16(u_int8_t value, u_int16_t crcin)
+{
+    u_int16_t k = (((crcin >> 8) ^ value) & 255) << 8;
+    u_int16_t crc = 0;
+    int bits;
+    for (bits=8; bits; --bits) {
+	if ((crc ^ k) & 0x8000)
+	    crc = (crc << 1) ^ 0x1021;
+	else
+	    crc <<= 1;
+	k <<= 1;
+    }
+    return ((crcin << 8) ^ crc);
+}
+
+
+#if 0
+static u_int16_t CRC16Buf(unsigned int count, unsigned char *buffer)
+{
+    u_int16_t crc = 0;
+    do {
+	u_int8_t value = *buffer++;
+	crc = CRC16(value, crc);
+    } while (--count);
+    return crc;
+}
+#endif
+
+
 /** Return a printable character */
 static char printable(const char ch)
 {
@@ -189,22 +222,10 @@ const char *cmdstr(const lcm_cmd_t cmd) {
 /***  hardware dependant functions    ***/
 /****************************************/
 
-
-/* Send a command frame to the board */
-static void lcm_send_cmd_frame(lcm_cmd_t cmd)
-{
-    char cmd_buf[3];
-    cmd_buf[0] = LCM_FRAME_MASK;
-    cmd_buf[1] = cmd;
-    cmd_buf[2] = LCM_FRAME_MASK;
-    debug_data("snd ", cmd_buf, 3);
-    drv_generic_serial_write(cmd_buf, 3);
-}
-
-
 /* global LCM state machine */
+
+
 typedef enum { MODE_0, MODE_1, MODE_IDLE } lcm_mode_t;
-static lcm_mode_t lcm_mode = MODE_0;
 
 
 const char *modestr(const lcm_mode_t mode) {
@@ -214,6 +235,87 @@ const char *modestr(const lcm_mode_t mode) {
     case MODE_IDLE: return "IDLE"; break;
     }
     return "MODE_UNKNOWN";
+}
+
+
+static lcm_mode_t lcm_mode = MODE_0;
+
+
+static void lcm_receive_check(void);
+static void lcm_handle_cmd_frame(lcm_cmd_t cmd);
+static void lcm_handle_data_frame(const lcm_cmd_t cmd,
+				  const u_int8_t *payload,
+				  unsigned int payload_len);
+
+
+static void lcm_receive_check(void)
+{
+    static u_int8_t rxframe[32];
+    const int readlen = drv_generic_serial_poll((void *)rxframe, sizeof(rxframe));
+    unsigned int framelen = 0;
+    if (framelen <= 0) {
+	debug("%s Received no data", __FUNCTION__);
+	return;
+    }
+    framelen = readlen;
+    debug("%s received %d bytes", __FUNCTION__, framelen);
+    debug_data(" RX ", rxframe, framelen);
+    if (framelen == 3 &&
+	       (rxframe[0] == LCM_FRAME_MASK) &&
+	       (rxframe[2] == LCM_FRAME_MASK)) {
+	const lcm_cmd_t cmd = rxframe[1];
+	debug("%s Received cmd frame (cmd=%d=%s)", __FUNCTION__, cmd, cmdstr(cmd));
+	lcm_handle_cmd_frame(cmd);
+	return;
+    } else if (rxframe[0] == LCM_FRAME_MASK) {
+	unsigned int ri; /* raw indexed */
+	unsigned int ci; /* cooked indexed */
+
+	debug("%s Received possible data frame", __FUNCTION__);
+
+	/* unescape rxframe data in place */
+	unsigned int truelen = framelen;
+	for (ri=1, ci=1; ri < framelen; ri++) {
+	    if (rxframe[ri] == LCM_ESC) {
+		ri++;
+		truelen--;
+	    }
+	    rxframe[ci++] = rxframe[ri];
+	}
+
+	/* calculate CRC for unescaped data */
+	u_int16_t crc=0;
+	for (ci=1; ci<truelen-3; ci++) {
+	    crc = CRC16(crc, ci);
+	}
+	if ((rxframe[ci+0]==HI8(crc)) &&
+	    (rxframe[ci+1]==LO8(crc)) &&
+	    (rxframe[ci+2]==LCM_FRAME_MASK)) {
+	    lcm_cmd_t cmd = rxframe[1];
+	    u_int16_t len = (rxframe[3]<<8) + rxframe[2];
+	    lcm_handle_data_frame(cmd, &rxframe[5], len);
+	} else {
+	    debug("%s checksum/framemask error", __FUNCTION__);
+	}
+	return;
+    } else {
+	debug("%s Received garbage data", __FUNCTION__);
+	return;
+    }
+}
+
+
+/* Send a command frame to the board */
+static void lcm_send_cmd_frame(lcm_cmd_t cmd)
+{
+    lcm_receive_check();
+    char cmd_buf[3];
+    cmd_buf[0] = LCM_FRAME_MASK;
+    cmd_buf[1] = cmd;
+    cmd_buf[2] = LCM_FRAME_MASK;
+    debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
+    debug_data(" TX ", cmd_buf, 3);
+    drv_generic_serial_write(cmd_buf, 3);
 }
 
 
@@ -236,9 +338,32 @@ static void lcm_handle_cmd(lcm_cmd_t cmd)
 	case CMD_ACK: lcm_send_cmd_frame(CMD_CONFIRM); break;
 	case CMD_DISCONNECT: lcm_send_cmd_frame(CMD_ACK); break;
 	default:
-	    error("%s: Unhandled cmd %d in state %d", Name, cmd, lcm_mode);
+	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
 	    break;
 	}
+	break;
+    }
+}
+
+
+
+static void lcm_handle_data_frame(const lcm_cmd_t cmd,
+				  const u_int8_t *payload,
+				  unsigned int payload_len)
+{
+    switch (lcm_mode) {
+    case MODE_IDLE:
+	switch (cmd) {
+	case CMD_WRITE:
+	    assert(payload_len == 1);
+	    debug("Got a key %c=0x%x", *payload, *payload);
+	    lcm_send_cmd_frame(CMD_ACK);
+	    break;
+	}
+	break;
+    case MODE_0:
+    case MODE_1:
+	lcm_send_cmd_frame(CMD_NACK);
 	break;
     }
 }
@@ -277,18 +402,7 @@ static void drv_TeakLCM_connect()
     lcm_send_cmd_frame(CMD_RESET);
     usleep(100000);
 
-    if ((drv_generic_serial_read((void *)buffer, 3) != 3)
-	|| (buffer[0] != LCM_FRAME_MASK)
-	|| (buffer[2] != LCM_FRAME_MASK)
-	) {
-	error("%s: Error during handshake", Name);
-    }
-    if (buffer[1] == CMD_CONNECT) {
-	lcm_mode = MODE_1;
-	debug("%s: Got CMD_CONNECT, sending CMD_ACK", Name);
-	lcm_send_cmd_frame(CMD_ACK);
-    }
-
+    lcm_send_cmd_frame(CMD_ACK);
 }
 
 static int drv_TeakLCM_open(const char *section)
@@ -315,33 +429,6 @@ static int drv_TeakLCM_close(void)
 
 // drv_generic_serial_write(data, len);
 
-static u_int16_t CRC16(u_int8_t value, u_int16_t crcin)
-{
-    u_int16_t k = (((crcin >> 8) ^ value) & 255) << 8;
-    u_int16_t crc = 0;
-    int bits;
-    for (bits=8; bits; --bits) {
-	if ((crc ^ k) & 0x8000)
-	    crc = (crc << 1) ^ 0x1021;
-	else
-	    crc <<= 1;
-	k <<= 1;
-    }
-    return ((crcin << 8) ^ crc);
-}
-
-#if 0
-static u_int16_t CRC16Buf(unsigned int count, unsigned char *buffer)
-{
-    u_int16_t crc = 0;
-    do {
-	u_int8_t value = *buffer++;
-	crc = CRC16(value, crc);
-    } while (--count);
-    return crc;
-}
-#endif
-
 
 static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
 {
@@ -350,13 +437,12 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
     static char frame[32];
     u_int16_t crc = 0;
 
+    lcm_receive_check();
+
     frame[0] = LCM_FRAME_MASK;
 
     frame[1] = cmd;
     crc = CRC16(frame[1], crc);
-
-#define HI8(value) ((unsigned char)(((value)>>8) & 0xff))
-#define LO8(value) ((unsigned char)((value) & 0xff))
 
     frame[2] = HI8(len);
     crc = CRC16(frame[2], crc);
@@ -406,7 +492,6 @@ static void drv_TeakLCM_clear(void)
 {
     /* do whatever is necessary to clear the display */
     lcm_send_cmd_frame(LCM_CLEAR);
-    lcm_expect_cmd(CMD_ACK);
 }
 
 
@@ -419,13 +504,6 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
 {
     debug("%s row=%d col=%d len=%d data=\"%s\"", __FUNCTION__,
 	  row, col, len, data);
-
-#if 0
-    int i;
-    for (i=0; i<col; ++i) {
-        lcm_send_cmd_frame(LCM_CURSOR_SHIFT_R);
-    }
-#endif
 
     memcpy(&shadow[DCOLS*row+col], data, len);
 
@@ -500,7 +578,6 @@ static int drv_TeakLCM_start(const char *section)
  
     DROWS = rows;
     DCOLS = cols;
-    debug("%s: FOOO", Name);
     shadow = malloc(DROWS*DCOLS);
     memset(shadow, 32, DROWS*DCOLS);
 
