@@ -260,7 +260,7 @@ static void lcm_receive_check(void)
 	return;
     }
     framelen = readlen;
-    debug("%s received %d bytes", __FUNCTION__, framelen);
+    debug("%s RECEIVED %d bytes", __FUNCTION__, framelen);
     debug_data(" RX ", rxframe, framelen);
     if (framelen == 3 &&
 	       (rxframe[0] == LCM_FRAME_MASK) &&
