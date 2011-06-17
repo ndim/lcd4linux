@@ -249,6 +249,8 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 				  const u_int8_t *payload,
 				  unsigned int payload_len);
 
+static void lcm_send_cmd_frame(lcm_cmd_t cmd);
+
 
 static void lcm_receive_check(void)
 {
@@ -304,21 +306,6 @@ static void lcm_receive_check(void)
 	debug("%s Received garbage data", __FUNCTION__);
 	return;
     }
-}
-
-
-/* Send a command frame to the board */
-static void lcm_send_cmd_frame(lcm_cmd_t cmd)
-{
-    lcm_receive_check();
-    char cmd_buf[3];
-    cmd_buf[0] = LCM_FRAME_MASK;
-    cmd_buf[1] = cmd;
-    cmd_buf[2] = LCM_FRAME_MASK;
-    debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
-    debug_data(" TX ", cmd_buf, 3);
-    drv_generic_serial_write(cmd_buf, 3);
-    usleep(100000);
 }
 
 
@@ -403,41 +390,22 @@ static int lcm_expect_cmd(lcm_cmd_t cmd)
 #endif
 
 
-/* Initialize the LCM by completing the handshake */
-static void drv_TeakLCM_connect()
+/* Send a command frame to the TCM board */
+static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 {
-    lcm_mode = MODE_0;
-    lcm_send_cmd_frame(CMD_RESET);
+    lcm_receive_check();
+    char cmd_buf[3];
+    cmd_buf[0] = LCM_FRAME_MASK;
+    cmd_buf[1] = cmd;
+    cmd_buf[2] = LCM_FRAME_MASK;
+    debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
+    debug_data(" TX ", cmd_buf, 3);
+    drv_generic_serial_write(cmd_buf, 3);
     usleep(100000);
-
-    lcm_send_cmd_frame(CMD_ACK);
-}
-
-static int drv_TeakLCM_open(const char *section)
-{
-    /* open serial port */
-    /* don't mind about device, speed and stuff, this function will take care of */
-
-    if (drv_generic_serial_open(section, Name, 0) < 0)
-	return -1;
-
-    return 0;
 }
 
 
-
-static int drv_TeakLCM_close(void)
-{
-    /* close whatever port you've opened */
-    drv_generic_serial_close();
-
-    return 0;
-}
-
-
-// drv_generic_serial_write(data, len);
-
-
+/* Send a data frame to the TCM board */
 static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
 {
     unsigned int di; /* data index */
@@ -493,6 +461,41 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
 
 #undef APPEND
 }
+
+
+/* Initialize the LCM by completing the handshake */
+static void drv_TeakLCM_connect()
+{
+    lcm_mode = MODE_0;
+    lcm_send_cmd_frame(CMD_RESET);
+    usleep(100000);
+
+    lcm_send_cmd_frame(CMD_ACK);
+}
+
+static int drv_TeakLCM_open(const char *section)
+{
+    /* open serial port */
+    /* don't mind about device, speed and stuff, this function will take care of */
+
+    if (drv_generic_serial_open(section, Name, 0) < 0)
+	return -1;
+
+    return 0;
+}
+
+
+
+static int drv_TeakLCM_close(void)
+{
+    /* close whatever port you've opened */
+    drv_generic_serial_close();
+
+    return 0;
+}
+
+
+// drv_generic_serial_write(data, len);
 
 
 /* text mode displays only */
