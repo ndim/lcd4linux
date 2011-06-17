@@ -105,16 +105,18 @@ static char printable(const char ch)
 }
 
 
-static void debug_data(const char *prefix, const void *data, const size_t size)
+static void debug_data_int(const char *prefix, const void *data, const size_t size,
+			   const unsigned int delta)
 {
     const u_int8_t *b = (const u_int8_t *)data;
     size_t y;
-    for (y=0; y<size; y+=16) {
-	char buf[80];
+    assert(delta <= 24);
+    for (y=0; y<size; y+=delta) {
+	char buf[100];
 	size_t x;
 	ssize_t idx = 0;
 	idx += sprintf(&(buf[idx]), "%04x ", y);
-	for (x=0; x<16; x++) {
+	for (x=0; x<delta; x++) {
 	    const size_t i = x+y;
 	    if (i<size) {
 		idx += sprintf(&(buf[idx]), " %02x", b[i]);
@@ -123,7 +125,7 @@ static void debug_data(const char *prefix, const void *data, const size_t size)
 	    }
 	}
 	idx += sprintf(&buf[idx], "  ");
-	for (x=0; x<16; x++) {
+	for (x=0; x<delta; x++) {
 	    const size_t i = x+y;
 	    if (i<size) {
 		idx += sprintf(&buf[idx], "%c", printable(b[i]));
@@ -133,6 +135,12 @@ static void debug_data(const char *prefix, const void *data, const size_t size)
 	}
 	debug("%s%s", prefix, buf);
     }
+}
+
+
+static void debug_data(const char *prefix, const void *data, const size_t size)
+{
+    debug_data_int(prefix, data, size, 16);
 }
 
 
@@ -512,6 +520,12 @@ static void drv_TeakLCM_clear(void)
 char *shadow;
 
 
+static void debug_shadow(const char *prefix)
+{
+    debug_data_int(prefix, shadow, DCOLS*DROWS, 20);
+}
+
+
 /* text mode displays only */
 static void drv_TeakLCM_write(const int row, const int col, const char *data, int len)
 {
@@ -520,7 +534,7 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
 
     memcpy(&shadow[DCOLS*row+col], data, len);
 
-    debug_data("shadow ", shadow, DCOLS*DROWS);
+    debug_shadow(" shadow ");
 
     lcm_send_data_frame((row == 0)?CMD_PRINT1:CMD_PRINT2,
 			&shadow[DCOLS*row], DCOLS);
