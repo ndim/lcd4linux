@@ -741,7 +741,7 @@ int drv_TeakLCM_quit(const int quiet)
     }
 
     lcm_send_cmd_frame(LCM_DISPLAY_OFF);
-    lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
+    // lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
 
     debug("closing connection");
     drv_TeakLCM_close();
