@@ -41,6 +41,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include <assert.h>
+
 #include "debug.h"
 #include "cfg.h"
 #include "qprintf.h"
@@ -319,7 +321,7 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 }
 
 
-static void lcm_handle_cmd(lcm_cmd_t cmd)
+static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 {
     switch (lcm_mode) {
     case MODE_0:
@@ -359,6 +361,10 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 	    debug("Got a key %c=0x%x", *payload, *payload);
 	    lcm_send_cmd_frame(CMD_ACK);
 	    break;
+	default:
+	    debug("Got an unknown data frame: %d=%s", cmd, cmdstr(cmd));
+	    lcm_send_cmd_frame(CMD_NACK);
+	    break;
 	}
 	break;
     case MODE_0:
@@ -369,6 +375,7 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 }
 
 
+#if 0
 static int lcm_expect_cmd(lcm_cmd_t cmd)
 {
     /* give LCM 100ms time to reply */
@@ -385,20 +392,20 @@ static int lcm_expect_cmd(lcm_cmd_t cmd)
 	debug("%s: Invalid cmd received waiting for %d", Name, cmd);
 	return 0;
     }
-    lcm_handle_cmd(buf[1]);
+    lcm_handle_cmd_frame(buf[1]);
     if (buf[1] == cmd) {
 	return 1;
     } else {
 	return 0;
     }
 }
+#endif
 
 
 /* Initialize the LCM by completing the handshake */
 static void drv_TeakLCM_connect()
 {
     lcm_mode = MODE_0;
-    unsigned char buffer[3];
     lcm_send_cmd_frame(CMD_RESET);
     usleep(100000);
 
