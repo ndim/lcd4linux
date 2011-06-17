@@ -402,6 +402,7 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
     usleep(100000);
+    lcm_receive_check();
 }
 
 
@@ -458,6 +459,7 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
     drv_generic_serial_write(frame, fi);
 
     usleep(100000);
+    lcm_receive_check();
 
 #undef APPEND
 }
