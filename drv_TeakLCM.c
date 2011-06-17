@@ -656,7 +656,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 
     /* display preferences */
     XRES = 5;			/* pixel width of one char  */
-    YRES = 7;			/* pixel height of one char  */
+    YRES = 8;			/* pixel height of one char  */
     CHARS = 0;			/* number of user-defineable characters */
     CHAR0 = 0;			/* ASCII of first user-defineable char */
     GOTO_COST = -1;		/* number of bytes a goto command requires */
