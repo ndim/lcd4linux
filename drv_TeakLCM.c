@@ -476,7 +476,7 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
 	}					       \
 	frame[fi++] = v;			       \
     } while (0)
-    
+
     for (fi=4, di=0; di<len; di++) {
 	APPEND(data[di]);
     }
