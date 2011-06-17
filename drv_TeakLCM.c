@@ -491,8 +491,6 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
 
     usleep(100000);
 
-#undef LO8
-#undef HI8
 #undef APPEND
 }
 
