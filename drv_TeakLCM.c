@@ -318,6 +318,7 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
     debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
+    usleep(100000);
 }
 
 
@@ -487,6 +488,8 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
 
     debug_data("snd ", frame, fi);
     drv_generic_serial_write(frame, fi);
+
+    usleep(100000);
 
 #undef LO8
 #undef HI8
