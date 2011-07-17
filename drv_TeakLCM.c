@@ -507,9 +507,9 @@ static void drv_TeakLCM_connect()
 {
     lcm_mode = MODE_0;
     lcm_send_cmd_frame(CMD_RESET);
-    usleep(100000);
 
-    lcm_send_cmd_frame(CMD_ACK);
+    usleep(100000);
+    lcm_receive_check();
 }
 
 static int drv_TeakLCM_open(const char *section)
