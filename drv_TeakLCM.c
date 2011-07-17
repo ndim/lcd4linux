@@ -421,9 +421,12 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
     debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
+    usleep(100000);
     switch (cmd) {
     case CMD_ACK:
+	//case CMD_CONFIRM:
     case CMD_NACK:
+	lcm_receive_check();
 	break;
     default:
 	if (1) {
