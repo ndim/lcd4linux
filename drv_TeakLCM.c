@@ -251,7 +251,7 @@ const char *modestr(const lcm_mode_t mode) {
 static lcm_mode_t lcm_mode = MODE_0;
 
 
-static void lcm_receive_check(void);
+static int lcm_receive_check(void);
 static void lcm_handle_cmd_frame(lcm_cmd_t cmd);
 static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 				  const u_int8_t *payload,
@@ -260,14 +260,14 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 static void lcm_send_cmd_frame(lcm_cmd_t cmd);
 
 
-static void lcm_receive_check(void)
+static int lcm_receive_check(void)
 {
     static u_int8_t rxframe[32];
     const int readlen = drv_generic_serial_poll((void *)rxframe, sizeof(rxframe));
     unsigned int framelen;
     if (readlen <= 0) {
 	debug("%s Received no data", __FUNCTION__);
-	return;
+	return 0;
     }
     framelen = readlen;
     debug("%s RECEIVED %d bytes", __FUNCTION__, framelen);
@@ -278,7 +278,7 @@ static void lcm_receive_check(void)
 	const lcm_cmd_t cmd = rxframe[1];
 	debug("%s Received cmd frame (cmd=%d=%s)", __FUNCTION__, cmd, cmdstr(cmd));
 	lcm_handle_cmd_frame(cmd);
-	return;
+	return 1;
     } else if (rxframe[0] == LCM_FRAME_MASK) {
 	unsigned int ri; /* raw indexed */
 	unsigned int ci; /* cooked indexed */
@@ -310,10 +310,10 @@ static void lcm_receive_check(void)
 	    lcm_send_cmd_frame(CMD_NACK);
 	    debug("%s checksum/framemask error", __FUNCTION__);
 	}
-	return;
+	return 1;
     } else {
 	debug("%s Received garbage data", __FUNCTION__);
-	return;
+	return 1;
     }
 }
 
@@ -408,7 +408,7 @@ static int lcm_expect_cmd(lcm_cmd_t cmd)
 /* Send a command frame to the TCM board */
 static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 {
-    lcm_receive_check();
+    // lcm_receive_check();
     char cmd_buf[3];
     cmd_buf[0] = LCM_FRAME_MASK;
     cmd_buf[1] = cmd;
@@ -416,8 +416,20 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
     debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
-    usleep(100000);
-    lcm_receive_check();
+    switch (cmd) {
+    case CMD_ACK:
+    case CMD_NACK:
+	break;
+    default:
+	if (1) {
+	    int i;
+	    for (i=0; i<20; i++) {
+		usleep(100000);
+		lcm_receive_check();
+	    }
+	}
+	break;
+    }
 }
 
 
