@@ -86,7 +86,7 @@ static void usage(void)
     printf("  -c <key>=<value> overwrite entries from the config-file\n");
     printf("  -i               enter interactive mode (after display initialisation)\n");
     printf("  -ii              enter interactive mode (before display initialisation)\n");
-    printf("  -f <config-file> use configuration from <config-file> instead of %s" DEFAULT_CONFIGFILE "\n");
+    printf("  -f <config-file> use configuration from <config-file> instead of " DEFAULT_CONFIGFILE "\n");
     printf("  -v               generate info messages\n");
     printf("  -vv              generate debugging messages\n");
     printf("  -p <pid-file>    specify a different pid-file location (default is /var/run/lcd4linux.pid)\n");
