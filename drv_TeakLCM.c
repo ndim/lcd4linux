@@ -307,6 +307,7 @@ static void lcm_receive_check(void)
 	    u_int16_t len = (rxframe[3]<<8) + rxframe[2];
 	    lcm_handle_data_frame(cmd, &rxframe[5], len);
 	} else {
+	    lcm_send_cmd_frame(CMD_NACK);
 	    debug("%s checksum/framemask error", __FUNCTION__);
 	}
 	return;
@@ -323,18 +324,24 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
     case MODE_0:
     case MODE_1:
 	switch (cmd) {
-	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK); break;
-	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); break;
+	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK);     lcm_mode = MODE_1; break;
+	case CMD_ACK:     lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_IDLE; break;
+	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_0; break;
 	case CMD_CONFIRM: lcm_mode = MODE_IDLE; break;
+	case CMD_RESET:   lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_1; break;
 	default:
+	    send_cmd_frame(CMD_NACK);
+	    lcm_mode = MODE_0;
 	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
 	    break;
 	}
 	break;
-    case MODE_IDLE:
+    case MODE_IDLE: /* "if (mode == 2)" */
 	switch (cmd) {
-	case CMD_ACK: lcm_send_cmd_frame(CMD_CONFIRM); break;
+	case CMD_ACK:        lcm_send_cmd_frame(CMD_CONFIRM); break;
+	case CMD_CONNECT:    lcm_send_cmd_frame(CMD_NACK); break;
 	case CMD_DISCONNECT: lcm_send_cmd_frame(CMD_ACK); break;
+	case CMD_RESET:      lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_0; break;
 	default:
 	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
 	    break;
@@ -355,11 +362,11 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 	case CMD_WRITE:
 	    assert(payload_len == 1);
 	    debug("Got a key %c=0x%x", *payload, *payload);
-	    lcm_send_cmd_frame(CMD_ACK);
+	    // lcm_send_cmd_frame(CMD_ACK);
 	    break;
 	default:
 	    debug("Got an unknown data frame: %d=%s", cmd, cmdstr(cmd));
-	    lcm_send_cmd_frame(CMD_NACK);
+	    // lcm_send_cmd_frame(CMD_NACK);
 	    break;
 	}
 	break;
