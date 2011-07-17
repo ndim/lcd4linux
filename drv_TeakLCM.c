@@ -264,8 +264,8 @@ static void lcm_receive_check(void)
 {
     static u_int8_t rxframe[32];
     const int readlen = drv_generic_serial_poll((void *)rxframe, sizeof(rxframe));
-    unsigned int framelen = 0;
-    if (framelen <= 0) {
+    unsigned int framelen;
+    if (readlen <= 0) {
 	debug("%s Received no data", __FUNCTION__);
 	return;
     }
