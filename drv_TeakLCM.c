@@ -330,7 +330,7 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 	case CMD_CONFIRM: lcm_mode = MODE_IDLE; break;
 	case CMD_RESET:   lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_1; break;
 	default:
-	    send_cmd_frame(CMD_NACK);
+	    lcm_send_cmd_frame(CMD_NACK);
 	    lcm_mode = MODE_0;
 	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
 	    break;
