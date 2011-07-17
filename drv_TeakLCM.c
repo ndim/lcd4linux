@@ -235,20 +235,21 @@ const char *cmdstr(const lcm_cmd_t cmd) {
 /* global LCM state machine */
 
 
-typedef enum { MODE_0, MODE_1, MODE_IDLE } lcm_mode_t;
+/* 0: IDLE 1: COMMAND 2: CONNECTED */
+typedef enum { MODE_IDLE, MODE_COMMAND, MODE_CONNECTED } lcm_mode_t;
 
 
 const char *modestr(const lcm_mode_t mode) {
     switch (mode) {
-    case MODE_0: return "MODE 0"; break;
-    case MODE_1: return "MODE 1"; break;
-    case MODE_IDLE: return "IDLE"; break;
+    case MODE_IDLE: return "MODE IDLE (0)"; break;
+    case MODE_COMMAND: return "MODE COMMAND (1)"; break;
+    case MODE_CONNECTED: return "MODE CONNECTED (2)"; break;
     }
     return "MODE_UNKNOWN";
 }
 
 
-static lcm_mode_t lcm_mode = MODE_0;
+static lcm_mode_t lcm_mode = MODE_IDLE;
 
 
 static int lcm_receive_check(void);
@@ -322,27 +323,27 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 {
     debug("lcm_handle_cmd_frame: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     switch (lcm_mode) {
-    case MODE_0:
-    case MODE_1:
+    case MODE_IDLE:
+    case MODE_COMMAND:
 	switch (cmd) {
-	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK);     lcm_mode = MODE_1; break;
-	case CMD_ACK:     lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_IDLE; break;
-	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_0; break;
+	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK);     lcm_mode = MODE_COMMAND; break;
+	case CMD_ACK:     lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_CONNECTED; break;
+	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_IDLE; break;
 	case CMD_CONFIRM: lcm_mode = MODE_IDLE; break;
-	case CMD_RESET:   lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_1; break;
+	case CMD_RESET:   lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_COMMAND; break;
 	default:
 	    lcm_send_cmd_frame(CMD_NACK);
-	    lcm_mode = MODE_0;
+	    lcm_mode = MODE_IDLE;
 	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
 	    break;
 	}
 	break;
-    case MODE_IDLE: /* "if (mode == 2)" */
+    case MODE_CONNECTED: /* "if (mode == 2)" */
 	switch (cmd) {
 	case CMD_ACK:        lcm_send_cmd_frame(CMD_CONFIRM); break;
 	case CMD_CONNECT:    lcm_send_cmd_frame(CMD_NACK); break;
 	case CMD_DISCONNECT: lcm_send_cmd_frame(CMD_ACK); break;
-	case CMD_RESET:      lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_0; break;
+	case CMD_RESET:      lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_IDLE; break;
 	default:
 	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
 	    break;
@@ -360,7 +361,7 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 {
     debug("lcm_handle_data_frame: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     switch (lcm_mode) {
-    case MODE_IDLE:
+    case MODE_CONNECTED:
 	switch (cmd) {
 	case CMD_WRITE:
 	    assert(payload_len == 1);
@@ -373,8 +374,8 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 	    break;
 	}
 	break;
-    case MODE_0:
-    case MODE_1:
+    case MODE_IDLE:
+    case MODE_COMMAND:
 	lcm_send_cmd_frame(CMD_NACK);
 	break;
     }
@@ -505,7 +506,7 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
 /* Initialize the LCM by completing the handshake */
 static void drv_TeakLCM_connect()
 {
-    lcm_mode = MODE_0;
+    lcm_mode = MODE_IDLE;
     lcm_send_cmd_frame(CMD_RESET);
 
     usleep(100000);
