@@ -425,7 +425,9 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 	    int i;
 	    for (i=0; i<20; i++) {
 		usleep(100000);
-		lcm_receive_check();
+		if (lcm_receive_check()) {
+		    break;
+		}
 	    }
 	}
 	break;
