@@ -320,6 +320,7 @@ static int lcm_receive_check(void)
 
 static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 {
+    debug("lcm_handle_cmd_frame: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     switch (lcm_mode) {
     case MODE_0:
     case MODE_1:
@@ -348,6 +349,7 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 	}
 	break;
     }
+    debug("lcm_handle_cmd_frame: new state 0x%02x %s", lcm_mode, modestr(lcm_mode));
 }
 
 
@@ -356,6 +358,7 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 				  const u_int8_t *payload,
 				  unsigned int payload_len)
 {
+    debug("lcm_handle_data_frame: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     switch (lcm_mode) {
     case MODE_IDLE:
 	switch (cmd) {
@@ -375,6 +378,7 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 	lcm_send_cmd_frame(CMD_NACK);
 	break;
     }
+    debug("lcm_handle_data_frame: new state 0x%02x %s", lcm_mode, modestr(lcm_mode));
 }
 
 
@@ -409,6 +413,7 @@ static int lcm_expect_cmd(lcm_cmd_t cmd)
 static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 {
     // lcm_receive_check();
+    debug("lcm_send_cmd_frame: state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     char cmd_buf[3];
     cmd_buf[0] = LCM_FRAME_MASK;
     cmd_buf[1] = cmd;
