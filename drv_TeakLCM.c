@@ -305,16 +305,18 @@ static
 int fsm_handle_bytes(lcm_fsm_t *fsm,
 		     u_int8_t *rxbuf, const unsigned int buflen)
 {
-    debug("%s RECEIVED %d bytes", __FUNCTION__, buflen);
-    debug_data(" RX ", rxbuf, buflen);
-    if (buflen == 3 &&
+    if ((buflen >= 3) &&
 	(rxbuf[0] == LCM_FRAME_MASK) &&
 	(rxbuf[2] == LCM_FRAME_MASK)) {
 	const lcm_cmd_t cmd = rxbuf[1];
 	debug("%s Received cmd frame (cmd=%d=%s)", __FUNCTION__, cmd, cmdstr(cmd));
 	fsm_handle_cmd(fsm, cmd);
+	if (buflen > 3) {
+	    fsm_handle_bytes(fsm, &rxbuf[3], buflen-3);
+	}
 	return 1;
-    } else if (rxbuf[0] == LCM_FRAME_MASK) {
+    } else if ((buflen > 3) &&
+	       (rxbuf[0] == LCM_FRAME_MASK)) {
 	unsigned int ri; /* raw indexed */
 	unsigned int ci; /* cooked indexed, i.e. after unescaping */
 
@@ -356,7 +358,8 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	    return 1;
 	}
     } else {
-	debug("%s Received garbage data", __FUNCTION__);
+	debug("%s Received garbage data:", __FUNCTION__);
+	debug_data(" RXD ", rxbuf, buflen);
 	return 1;
     }
 }
@@ -615,6 +618,8 @@ static int lcm_receive_check(void)
 	debug("%s Received no data", __FUNCTION__);
 	return 0;
     }
+    debug("%s RECEIVED %d bytes", __FUNCTION__, readlen);
+    debug_data(" RX ", rxbuf, readlen);
     return fsm_handle_bytes(&lcm_fsm, rxbuf, readlen);
 }
 
@@ -628,7 +633,7 @@ void raw_send_cmd_frame(lcm_cmd_t cmd)
     cmd_buf[0] = LCM_FRAME_MASK;
     cmd_buf[1] = cmd;
     cmd_buf[2] = LCM_FRAME_MASK;
-    debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
+    debug("%s sending cmd frame cmd=0x%02x=%s", __FUNCTION__, cmd, cmdstr(cmd));
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
 #if 0
@@ -706,7 +711,7 @@ void raw_send_data_frame(lcm_cmd_t cmd,
 
     frame[fi++] = LCM_FRAME_MASK;
 
-    debug_data("snd ", frame, fi);
+    debug_data(" TXD ", frame, fi);
     drv_generic_serial_write(frame, fi);
 
     usleep(100000);
