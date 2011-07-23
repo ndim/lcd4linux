@@ -843,9 +843,11 @@ static int drv_TeakLCM_start(const char *section)
 
     debug("%s: %s connected", Name, __FUNCTION__);
 
-    drv_TeakLCM_clear();	/* clear display */
-    lcm_send_cmd(LCM_BACKLIGHT_ON);
+    usleep(500000);
+
     lcm_send_cmd(LCM_DISPLAY_ON);
+    lcm_send_cmd(LCM_BACKLIGHT_ON);
+    drv_TeakLCM_clear();	/* clear display */
 
     debug("%s: %s done", Name, __FUNCTION__);
     return 0;
