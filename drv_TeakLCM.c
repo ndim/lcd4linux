@@ -599,34 +599,10 @@ static void drv_TeakLCM_defchar(const int ascii, const unsigned char *matrix)
 }
 #endif
 
-/* example function used in a plugin */
-#if 0
-static int drv_TeakLCM_contrast(int contrast)
-{
-    char cmd[2];
-
-    /* adjust limits according to the display */
-    if (contrast < 0)
-	contrast = 0;
-    if (contrast > 255)
-	contrast = 255;
-
-    /* call a 'contrast' function */
-    /* assume 0x04 to be the 'set contrast' command */
-    cmd[0] = 0x04;
-    cmd[1] = contrast;
-    drv_TeakLCM_send(cmd, 2);
-
-    return contrast;
-}
-#endif
 
 /* start text mode display */
 static int drv_TeakLCM_start(const char *section)
 {
-#if 0
-    int contrast;
-#endif
     int rows = -1, cols = -1;
     char *s;
 
@@ -657,12 +633,6 @@ static int drv_TeakLCM_start(const char *section)
 
     debug("%s: %s connected", Name, __FUNCTION__);
 
-#if 0
-    if (cfg_number(section, "Contrast", 0, 0, 255, &contrast) > 0) {
-	drv_TeakLCM_contrast(contrast);
-    }
-#endif
-
     drv_TeakLCM_clear();	/* clear display */
     lcm_send_cmd_frame(LCM_BACKLIGHT_ON);
     lcm_send_cmd_frame(LCM_DISPLAY_ON);
@@ -675,16 +645,6 @@ static int drv_TeakLCM_start(const char *section)
 /****************************************/
 /***            plugins               ***/
 /****************************************/
-
-#if 0
-static void plugin_contrast(RESULT * result, RESULT * arg1)
-{
-    double contrast;
-
-    contrast = drv_TeakLCM_contrast(R2N(arg1));
-    SetResult(&result, R_NUMBER, &contrast);
-}
-#endif
 
 
 /****************************************/
@@ -780,7 +740,6 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     widget_register(&wc);
 
     /* register plugins */
-    AddFunction("LCD::contrast", 1, plugin_contrast);
 #endif
 
     return 0;
