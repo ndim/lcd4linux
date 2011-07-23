@@ -62,6 +62,9 @@
 static char Name[] = "TeakLCM";
 
 
+static int global_reset_rx_flag = 0;
+
+
 #define HI8(value) ((u_int8_t)(((value)>>8) & 0xff))
 #define LO8(value) ((u_int8_t)((value) & 0xff))
 
@@ -361,6 +364,9 @@ static void fsm_handle_cmd(lcm_fsm_t *fsm, lcm_cmd_t cmd)
 {
     // debug("fsm_handle_cmd: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     const lcm_state_t old_state = fsm_get_state(fsm);
+    if (CMD_RESET == cmd) {
+	global_reset_rx_flag = 1;
+    }
     switch (old_state) {
     case ST_IDLE:
     case ST_COMMAND:
@@ -727,13 +733,19 @@ static void drv_TeakLCM_connect()
     if (readlen >= 0) {
 	debug_data(" initial RX garbage ", rxbuf, readlen);
     }
-    fsm_init();
-    raw_send_cmd_frame(CMD_RESET);
 
-    while (fsm_get_state(&lcm_fsm) != ST_CONNECTED) {
-	usleep(100000);
-	lcm_receive_check();
-    }
+    do {
+	fsm_init();
+	raw_send_cmd_frame(CMD_RESET);
+
+	while (fsm_get_state(&lcm_fsm) != ST_CONNECTED) {
+	    usleep(100000);
+	    lcm_receive_check();
+	}
+
+	usleep(2*1000*1000);
+    } while (!global_reset_rx_flag);
+
 }
 
 static int drv_TeakLCM_open(const char *section)
