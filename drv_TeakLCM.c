@@ -420,6 +420,7 @@ static void fsm_handle_cmd(lcm_fsm_t *fsm, lcm_cmd_t cmd)
 	break;
     }
     fsm_step(fsm);
+
     usleep(1000000);
     lcm_receive_check();
     usleep(1000000);
@@ -457,6 +458,7 @@ void fsm_handle_datacmd(lcm_fsm_t *fsm,
 	break;
     }
     fsm_step(fsm);
+
     usleep(1000000);
     lcm_receive_check();
 }
