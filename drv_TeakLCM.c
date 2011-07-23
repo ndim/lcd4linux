@@ -726,6 +726,11 @@ void lcm_send_cmd(lcm_cmd_t cmd)
 /* Initialize the LCM by completing the handshake */
 static void drv_TeakLCM_connect()
 {
+    static u_int8_t rxbuf[32];
+    const int readlen = drv_generic_serial_poll((void *)rxbuf, sizeof(rxbuf));
+    if (readlen >= 0) {
+	debug_data(" initial RX garbage ", rxbuf, readlen);
+    }
     fsm_init();
     lcm_send_cmd(CMD_RESET);
 
