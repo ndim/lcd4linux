@@ -932,6 +932,10 @@ int drv_TeakLCM_quit(const int quiet)
     // lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
     lcm_send_cmd(CMD_DISCONNECT);
 
+    /* consume final ack frame */
+    usleep(100000);
+    lcm_receive_check();
+
     debug("closing connection");
     drv_TeakLCM_close();
 
