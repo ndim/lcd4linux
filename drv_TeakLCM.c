@@ -292,8 +292,8 @@ void fsm_trans_data(lcm_fsm_t *fsm,
 
 
 static
-int fsm_handle_bytes(lcm_fsm_t *fsm,
-		     u_int8_t *rxbuf, const unsigned int buflen)
+void fsm_handle_bytes(lcm_fsm_t *fsm,
+		      u_int8_t *rxbuf, const unsigned int buflen)
 {
     if ((buflen >= 3) &&
 	(rxbuf[0] == LCM_FRAME_MASK) &&
@@ -302,9 +302,10 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	debug("%s Received cmd frame (cmd=%d=%s)", __FUNCTION__, cmd, cmdstr(cmd));
 	fsm_handle_cmd(fsm, cmd);
 	if (buflen > 3) {
+	    /* recursively handle remaining bytes */
 	    fsm_handle_bytes(fsm, &rxbuf[3], buflen-3);
 	}
-	return 1;
+	return;
     } else if ((buflen > 3) &&
 	       (rxbuf[0] == LCM_FRAME_MASK)) {
 	unsigned int ri; /* raw indexed */
@@ -313,46 +314,44 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	debug("%s Received possible data frame", __FUNCTION__);
 
 	/* unescape rxframe data in place */
-	unsigned int clen = buflen;
+	u_int16_t crc0=0, crc1=0, crc2=0, crc3=0;
 	for (ri=1, ci=1; ri < buflen; ri++) {
-	    if ((ri < (buflen-1)) && (rxbuf[ri] == LCM_FRAME_MASK)) {
-		/* Unescaped LCM_FRAME_MASK. Should not happen - means
-		   broken frame. */
-		fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
-			     CMD_NACK);
-		debug("%s framemask error", __FUNCTION__);
-		return 1;
-	    } else if (rxbuf[ri] == LCM_ESC) {
+	    switch (rxbuf[ri]) {
+	    case LCM_ESC:
 		ri++;
-		clen--;
+		/* fall through */
+	    default:
+		rxbuf[ci++] = rxbuf[ri];
+		crc3 = crc2;
+		crc2 = crc1;
+		crc1 = crc0;
+		crc0 = CRC16(rxbuf[ri], crc0);
+		break;
 	    }
-	    rxbuf[ci++] = rxbuf[ri];
+	    if ((rxbuf[ci-1] == LCM_FRAME_MASK) &&
+		(rxbuf[ci-2] == LO8(crc3)) &&
+		(rxbuf[ci-3] == HI8(crc3))) {
+		/* looks like a complete data frame */
+		lcm_cmd_t cmd = rxbuf[1];
+		u_int16_t len = (rxbuf[3]<<8) + rxbuf[2];
+		assert(ci == (1+1+2+len+2+1));
+		fsm_handle_datacmd(fsm, cmd, &rxbuf[4], len);
+		if (ri+1 < buflen) {
+		    /* recursively handle remaining bytes */
+		    fsm_handle_bytes(fsm, &rxbuf[ri+1], buflen-ri);
+		}
+		return;
+	    }
 	}
 
-	/* calculate CRC for unescaped data */
-	u_int16_t crc=0;
-	for (ci=1; ci<clen-3; ci++) {
-	    crc = CRC16(rxbuf[ci], crc);
-	}
-	/* FIXME: Handle potential additional frame data after this
-	 *        frame */
-	if ((rxbuf[ci+0]==HI8(crc)) &&
-	    (rxbuf[ci+1]==LO8(crc)) &&
-	    (rxbuf[ci+2]==LCM_FRAME_MASK)) {
-	    lcm_cmd_t cmd = rxbuf[1];
-	    u_int16_t len = (rxbuf[3]<<8) + rxbuf[2];
-	    fsm_handle_datacmd(fsm, cmd, &rxbuf[4], len);
-	    return 1;
-	} else {
-	    fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
-			 CMD_NACK);
-	    debug("%s checksum/framemask error", __FUNCTION__);
-	    return 1;
-	}
+	fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
+		      CMD_NACK);
+	debug("%s checksum/framemask error", __FUNCTION__);
+	return;
     } else {
 	debug("%s Received garbage data:", __FUNCTION__);
 	debug_data(" RXD ", rxbuf, buflen);
-	return 1;
+	return;
     }
 }
 
@@ -617,7 +616,8 @@ static int lcm_receive_check(void)
     }
     debug("%s RECEIVED %d bytes", __FUNCTION__, readlen);
     debug_data(" RX ", rxbuf, readlen);
-    return fsm_handle_bytes(&lcm_fsm, rxbuf, readlen);
+    fsm_handle_bytes(&lcm_fsm, rxbuf, readlen);
+    return 1;
 }
 
 
