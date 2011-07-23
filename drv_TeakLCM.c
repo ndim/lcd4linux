@@ -325,7 +325,7 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	/* unescape rxframe data in place */
 	unsigned int clen = buflen;
 	for (ri=1, ci=1; ri < buflen; ri++) {
-	    if (rxbuf[ri] == LCM_FRAME_MASK) {
+	    if ((ri < (buflen-1)) && (rxbuf[ri] == LCM_FRAME_MASK)) {
 		/* Unescaped LCM_FRAME_MASK. Should not happen - means
 		   broken frame. */
 		fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
