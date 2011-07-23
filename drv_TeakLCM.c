@@ -6,6 +6,7 @@
  * Copyright (C) 2005 Michael Reinelt <michael@reinelt.co.at>
  * Copyright (C) 2005, 2006, 2007 The LCD4Linux Team <lcd4linux-devel@users.sourceforge.net>
  * Copyright (C) 2011 ixs
+ * Copyright (C) 2011 Hans Ulrich Niedermann
  *
  * This file is part of LCD4Linux.
  *
@@ -235,83 +236,125 @@ const char *cmdstr(const lcm_cmd_t cmd) {
 /* global LCM state machine */
 
 
-/* 0: IDLE 1: COMMAND 2: CONNECTED */
-typedef enum { MODE_IDLE, MODE_COMMAND, MODE_CONNECTED } lcm_mode_t;
+struct _lcm_fsm_t;
+typedef struct _lcm_fsm_t lcm_fsm_t;
 
 
-const char *modestr(const lcm_mode_t mode) {
-    switch (mode) {
-    case MODE_IDLE: return "MODE IDLE (0)"; break;
-    case MODE_COMMAND: return "MODE COMMAND (1)"; break;
-    case MODE_CONNECTED: return "MODE CONNECTED (2)"; break;
+typedef enum {
+    ST_IDLE,     /* mode == 0, IDLE */
+    ST_COMMAND,  /* mode == 1, COMMAND */
+    ST_CONNECTED /* mode == 2, CONNECTED */
+} lcm_state_t;
+
+
+const char *state2str(const lcm_state_t state) {
+    switch (state) {
+    case ST_IDLE:      return "ST_IDLE (0)"; break;
+    case ST_COMMAND:   return "ST_COMMAND (1)"; break;
+    case ST_CONNECTED: return "ST_CONNECTED (2)"; break;
     }
-    return "MODE_UNKNOWN";
+    return "ST_UNKNOWN";
 }
 
 
-static lcm_mode_t lcm_mode = MODE_IDLE;
+static
+void raw_send_cmd_frame(lcm_cmd_t cmd);
+
+static
+void raw_send_data_frame(lcm_cmd_t cmd,
+			 const char *data, const unsigned int len);
 
 
-static int lcm_receive_check(void);
-static void lcm_handle_cmd_frame(lcm_cmd_t cmd);
-static void lcm_handle_data_frame(const lcm_cmd_t cmd,
-				  const u_int8_t *payload,
-				  unsigned int payload_len);
-
-static void lcm_send_cmd_frame(lcm_cmd_t cmd);
+static
+int lcm_receive_check(void);
 
 
-static int lcm_receive_check(void)
+static
+lcm_state_t fsm_get_state(lcm_fsm_t *fsm);
+
+static
+void fsm_handle_cmd(lcm_fsm_t *fsm,
+		    const lcm_cmd_t cmd);
+
+static
+void fsm_handle_datacmd(lcm_fsm_t *fsm,
+			const lcm_cmd_t cmd,
+			const u_int8_t *payload,
+			const unsigned int payload_len);
+
+static
+void fsm_step(lcm_fsm_t *fsm);
+
+static
+void fsm_trans_noop(lcm_fsm_t *fsm,
+		    const lcm_state_t next_state);
+
+static
+void fsm_trans_cmd(lcm_fsm_t *fsm,
+		   const lcm_state_t next_state,
+		   const lcm_cmd_t cmd);
+
+static
+void fsm_trans_data(lcm_fsm_t *fsm,
+		    const lcm_state_t next_state,
+		    const lcm_cmd_t cmd,
+		    const char *data, const unsigned int len);
+
+
+static
+int fsm_handle_bytes(lcm_fsm_t *fsm,
+		     u_int8_t *rxbuf, const unsigned int buflen)
 {
-    static u_int8_t rxframe[32];
-    const int readlen = drv_generic_serial_poll((void *)rxframe, sizeof(rxframe));
-    unsigned int framelen;
-    if (readlen <= 0) {
-	debug("%s Received no data", __FUNCTION__);
-	return 0;
-    }
-    framelen = readlen;
-    debug("%s RECEIVED %d bytes", __FUNCTION__, framelen);
-    debug_data(" RX ", rxframe, framelen);
-    if (framelen == 3 &&
-	       (rxframe[0] == LCM_FRAME_MASK) &&
-	       (rxframe[2] == LCM_FRAME_MASK)) {
-	const lcm_cmd_t cmd = rxframe[1];
+    debug("%s RECEIVED %d bytes", __FUNCTION__, buflen);
+    debug_data(" RX ", rxbuf, buflen);
+    if (buflen == 3 &&
+	(rxbuf[0] == LCM_FRAME_MASK) &&
+	(rxbuf[2] == LCM_FRAME_MASK)) {
+	const lcm_cmd_t cmd = rxbuf[1];
 	debug("%s Received cmd frame (cmd=%d=%s)", __FUNCTION__, cmd, cmdstr(cmd));
-	lcm_handle_cmd_frame(cmd);
+	fsm_handle_cmd(fsm, cmd);
 	return 1;
-    } else if (rxframe[0] == LCM_FRAME_MASK) {
+    } else if (rxbuf[0] == LCM_FRAME_MASK) {
 	unsigned int ri; /* raw indexed */
-	unsigned int ci; /* cooked indexed */
+	unsigned int ci; /* cooked indexed, i.e. after unescaping */
 
 	debug("%s Received possible data frame", __FUNCTION__);
 
 	/* unescape rxframe data in place */
-	unsigned int truelen = framelen;
-	for (ri=1, ci=1; ri < framelen; ri++) {
-	    if (rxframe[ri] == LCM_ESC) {
+	unsigned int clen = buflen;
+	for (ri=1, ci=1; ri < buflen; ri++) {
+	    if (rxbuf[ri] == LCM_FRAME_MASK) {
+		/* Unescaped LCM_FRAME_MASK. Should not happen - means
+		   broken frame. */
+		fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
+			     CMD_NACK);
+		debug("%s framemask error", __FUNCTION__);
+		return 1;
+	    } else if (rxbuf[ri] == LCM_ESC) {
 		ri++;
-		truelen--;
+		clen--;
 	    }
-	    rxframe[ci++] = rxframe[ri];
+	    rxbuf[ci++] = rxbuf[ri];
 	}
 
 	/* calculate CRC for unescaped data */
 	u_int16_t crc=0;
-	for (ci=1; ci<truelen-3; ci++) {
+	for (ci=1; ci<clen-3; ci++) {
 	    crc = CRC16(crc, ci);
 	}
-	if ((rxframe[ci+0]==HI8(crc)) &&
-	    (rxframe[ci+1]==LO8(crc)) &&
-	    (rxframe[ci+2]==LCM_FRAME_MASK)) {
-	    lcm_cmd_t cmd = rxframe[1];
-	    u_int16_t len = (rxframe[3]<<8) + rxframe[2];
-	    lcm_handle_data_frame(cmd, &rxframe[5], len);
+	if ((rxbuf[ci+0]==HI8(crc)) &&
+	    (rxbuf[ci+1]==LO8(crc)) &&
+	    (rxbuf[ci+2]==LCM_FRAME_MASK)) {
+	    lcm_cmd_t cmd = rxbuf[1];
+	    u_int16_t len = (rxbuf[3]<<8) + rxbuf[2];
+	    fsm_handle_datacmd(fsm, cmd, &rxbuf[5], len);
+	    return 1;
 	} else {
-	    lcm_send_cmd_frame(CMD_NACK);
+	    fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
+			 CMD_NACK);
 	    debug("%s checksum/framemask error", __FUNCTION__);
+	    return 1;
 	}
-	return 1;
     } else {
 	debug("%s Received garbage data", __FUNCTION__);
 	return 1;
@@ -319,38 +362,61 @@ static int lcm_receive_check(void)
 }
 
 
-static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
+static int lcm_receive_check(void);
+
+
+static void fsm_handle_cmd(lcm_fsm_t *fsm, lcm_cmd_t cmd)
 {
-    debug("lcm_handle_cmd_frame: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
-    switch (lcm_mode) {
-    case MODE_IDLE:
-    case MODE_COMMAND:
+    // debug("fsm_handle_cmd: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
+    const lcm_state_t old_state = fsm_get_state(fsm);
+    switch (old_state) {
+    case ST_IDLE:
+    case ST_COMMAND:
 	switch (cmd) {
-	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK);     lcm_mode = MODE_COMMAND; break;
-	case CMD_ACK:     lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_CONNECTED; break;
-	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_IDLE; break;
-	case CMD_CONFIRM:                                  lcm_mode = MODE_CONNECTED; break;
-	case CMD_RESET:   lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_COMMAND; break;
+	case CMD_CONNECT:
+	    fsm_trans_cmd(fsm, ST_COMMAND, CMD_ACK);
+	    break;
+	case CMD_ACK:
+	    fsm_trans_cmd(fsm, ST_CONNECTED, CMD_CONFIRM);
+	    break;
+	case CMD_NACK:
+	    fsm_trans_cmd(fsm, ST_IDLE, CMD_CONFIRM);
+	    break;
+	case CMD_CONFIRM:
+	    fsm_trans_noop(fsm, ST_CONNECTED);
+	    break;
+	case CMD_RESET:
+	    fsm_trans_cmd(fsm, ST_COMMAND, CMD_CONNECT);
+	    break;
 	default:
-	    lcm_send_cmd_frame(CMD_NACK);
-	    lcm_mode = MODE_IDLE;
-	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
+	    error("%s: Unhandled cmd %s in state %s", Name,
+		  cmdstr(cmd), state2str(old_state));
+	    fsm_trans_cmd(fsm, ST_IDLE, CMD_NACK);
 	    break;
 	}
 	break;
-    case MODE_CONNECTED: /* "if (mode == 2)" */
+    case ST_CONNECTED: /* "if (mode == 2)" */
 	switch (cmd) {
-	case CMD_ACK:        lcm_send_cmd_frame(CMD_CONFIRM); break;
-	case CMD_CONNECT:    lcm_send_cmd_frame(CMD_NACK); break;
-	case CMD_DISCONNECT: lcm_send_cmd_frame(CMD_ACK); break;
-	case CMD_RESET:      lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_IDLE; break;
+	case CMD_ACK:
+	    fsm_trans_cmd(fsm, ST_CONNECTED, CMD_CONFIRM);
+	    break;
+	case CMD_CONNECT:
+	    fsm_trans_cmd(fsm, ST_CONNECTED, CMD_NACK);
+	    break;
+	case CMD_DISCONNECT:
+	    fsm_trans_cmd(fsm, ST_CONNECTED, CMD_ACK);
+	    break;
+	case CMD_RESET:
+	    fsm_trans_cmd(fsm, ST_IDLE, CMD_CONNECT);
+	    break;
 	default:
-	    error("%s: Unhandled cmd %s in state %s", Name, cmdstr(cmd), modestr(lcm_mode));
+	    error("%s: Unhandled cmd %s in state %s", Name,
+		  cmdstr(cmd), state2str(old_state));
 	    break;
 	}
 	break;
     }
-    debug("lcm_handle_cmd_frame: new state 0x%02x %s", lcm_mode, modestr(lcm_mode));
+    fsm_step(fsm);
     usleep(1000000);
     lcm_receive_check();
     usleep(1000000);
@@ -358,69 +424,206 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 }
 
 
-
-static void lcm_handle_data_frame(const lcm_cmd_t cmd,
-				  const u_int8_t *payload,
-				  unsigned int payload_len)
+static
+void fsm_handle_datacmd(lcm_fsm_t *fsm,
+			const lcm_cmd_t cmd,
+			const u_int8_t *payload,
+			unsigned int payload_len)
 {
-    debug("lcm_handle_data_frame: old state 0x%02x %s", lcm_mode, modestr(lcm_mode));
-    switch (lcm_mode) {
-    case MODE_CONNECTED:
+    const lcm_state_t old_state = fsm_get_state(fsm);
+    debug("fsm_handle_datacmd: old state 0x%02x %s", old_state, state2str(old_state));
+    switch (old_state) {
+    case ST_CONNECTED:
 	switch (cmd) {
 	case CMD_WRITE:
 	    assert(payload_len == 1);
 	    debug("Got a key %c=0x%x", *payload, *payload);
+	    fsm_trans_noop(fsm, ST_CONNECTED);
 	    // lcm_send_cmd_frame(CMD_ACK);
 	    break;
 	default:
 	    debug("Got an unknown data frame: %d=%s", cmd, cmdstr(cmd));
+	    fsm_trans_noop(fsm, ST_CONNECTED);
 	    // lcm_send_cmd_frame(CMD_NACK);
 	    break;
 	}
 	break;
-    case MODE_IDLE:
-    case MODE_COMMAND:
-	lcm_send_cmd_frame(CMD_NACK);
+    case ST_IDLE:
+    case ST_COMMAND:
+	fsm_trans_cmd(fsm, old_state, CMD_NACK);
 	break;
     }
-    debug("lcm_handle_data_frame: new state 0x%02x %s", lcm_mode, modestr(lcm_mode));
+    fsm_step(fsm);
     usleep(1000000);
     lcm_receive_check();
 }
 
 
-#if 0
-static int lcm_expect_cmd(lcm_cmd_t cmd)
+struct _lcm_fsm_t {
+    lcm_state_t state;
+    lcm_state_t next_state;
+    enum {
+	ACTION_UNINITIALIZED,
+	ACTION_NOOP,
+	ACTION_CMD,
+	ACTION_DATA
+    } action_type;
+    union {
+	struct {
+	    lcm_cmd_t cmd;
+	} cmd_frame;
+	struct {
+	    lcm_cmd_t cmd;
+	    const char *data;
+	    unsigned int len;
+	} data_frame;
+    } action;
+};
+
+
+static
+lcm_state_t fsm_get_state(lcm_fsm_t *fsm)
 {
-    /* give LCM 100ms time to reply */
-    usleep(100000);
-    static unsigned char buf[3];
-
-    int retchar = drv_generic_serial_read((void *)buf, 3);
-
-    if (retchar != 3) {
-	debug("%s: No %s cmd received", Name, cmdstr(cmd));
-	return 0;
-    } else if ((buf[0] != LCM_FRAME_MASK) ||
-	       (buf[2] != LCM_FRAME_MASK)) {
-	debug("%s: Invalid cmd received waiting for %d", Name, cmd);
-	return 0;
-    }
-    lcm_handle_cmd_frame(buf[1]);
-    if (buf[1] == cmd) {
-	return 1;
-    } else {
-	return 0;
-    }
+    return fsm->state;
 }
-#endif
+
+
+static
+void fsm_step(lcm_fsm_t *fsm)
+{
+    debug("fsm: old_state=%s new_state=%s",
+	  state2str(fsm->state), state2str(fsm->next_state));
+    switch (fsm->action_type) {
+    case ACTION_UNINITIALIZED:
+	error("Uninitialized LCM FSM action");
+	break;
+    case ACTION_NOOP:
+	break;
+    case ACTION_CMD:
+	raw_send_cmd_frame(fsm->action.cmd_frame.cmd);
+	break;
+    case ACTION_DATA:
+	raw_send_data_frame(fsm->action.data_frame.cmd,
+			    fsm->action.data_frame.data,
+			    fsm->action.data_frame.len);
+	break;
+    }
+    fsm->action_type = ACTION_UNINITIALIZED;
+    switch (fsm->next_state) {
+    case ST_IDLE:
+    case ST_COMMAND:
+    case ST_CONNECTED:
+	fsm->state = fsm->next_state;
+	fsm->next_state = -1;
+	return;
+	break;
+    }
+    error("LCM FSM: Illegal next_state");
+}
+
+
+static
+void fsm_trans_noop(lcm_fsm_t *fsm,
+		    const lcm_state_t next_state)
+{
+    fsm->next_state = next_state;
+    fsm->action_type = ACTION_NOOP;
+}
+
+
+static
+void fsm_trans_cmd(lcm_fsm_t *fsm,
+		  const lcm_state_t next_state,
+		  const lcm_cmd_t cmd)
+{
+    fsm->next_state = next_state;
+    fsm->action_type = ACTION_CMD;
+    fsm->action.cmd_frame.cmd = cmd;
+}
+
+
+static
+void fsm_trans_data(lcm_fsm_t *fsm,
+		   const lcm_state_t next_state,
+		   const lcm_cmd_t cmd,
+		   const char *data, const unsigned int len)
+{
+    fsm->next_state = next_state;
+    fsm->action_type = ACTION_DATA;
+    fsm->action.data_frame.cmd = cmd;
+    fsm->action.data_frame.data = data;
+    fsm->action.data_frame.len = len;
+}
+
+
+static
+void fsm_send(lcm_fsm_t *fsm, const lcm_cmd_t cmd)
+{
+    const lcm_state_t old_state = fsm_get_state(fsm);
+    switch (old_state) {
+    case ST_IDLE:
+    case ST_COMMAND:
+	/* Silently ignore the command to send. */
+	/* TODO: Would it be better to queue it and send it later? */
+	break;
+    case ST_CONNECTED:
+	fsm_trans_cmd(fsm, ST_CONNECTED, cmd);
+	break;
+    }
+    fsm_step(fsm);
+}
+
+
+static
+void fsm_send_data(lcm_fsm_t *fsm,
+		   const lcm_cmd_t cmd,
+		   const void *data,
+		   const unsigned int len)
+{
+    const lcm_state_t old_state = fsm_get_state(fsm);
+    switch (old_state) {
+    case ST_IDLE:
+    case ST_COMMAND:
+	/* Silently ignore the command to send. */
+	/* TODO: Would it be better to queue it and send it later? */
+	break;
+    case ST_CONNECTED:
+	fsm_trans_data(fsm, ST_CONNECTED, cmd, data, len);
+	break;
+    }
+    fsm_step(fsm);
+}
+
+
+static lcm_fsm_t lcm_fsm;
+
+
+static
+void fsm_init(void)
+{
+    lcm_fsm.state       = ST_IDLE;
+    lcm_fsm.next_state  = -1;
+    lcm_fsm.action_type = ACTION_UNINITIALIZED;
+}
+
+
+static int lcm_receive_check(void)
+{
+    static u_int8_t rxbuf[32];
+    const int readlen = drv_generic_serial_poll((void *)rxbuf, sizeof(rxbuf));
+    if (readlen <= 0) {
+	debug("%s Received no data", __FUNCTION__);
+	return 0;
+    }
+    return fsm_handle_bytes(&lcm_fsm, rxbuf, readlen);
+}
 
 
 /* Send a command frame to the TCM board */
-static void lcm_send_cmd_frame(lcm_cmd_t cmd)
+static
+void raw_send_cmd_frame(lcm_cmd_t cmd)
 {
     // lcm_receive_check();
-    debug("lcm_send_cmd_frame: state 0x%02x %s", lcm_mode, modestr(lcm_mode));
     char cmd_buf[3];
     cmd_buf[0] = LCM_FRAME_MASK;
     cmd_buf[1] = cmd;
@@ -453,7 +656,9 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 
 
 /* Send a data frame to the TCM board */
-static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned int len)
+static
+void raw_send_data_frame(lcm_cmd_t cmd,
+			 const char *data, const unsigned int len)
 {
     unsigned int di; /* data index */
     unsigned int fi; /* frame index */
@@ -511,14 +716,23 @@ static void lcm_send_data_frame(lcm_cmd_t cmd, const char *data, const unsigned 
 }
 
 
+static
+void lcm_send_cmd(lcm_cmd_t cmd)
+{
+    fsm_send(&lcm_fsm, cmd);
+}
+
+
 /* Initialize the LCM by completing the handshake */
 static void drv_TeakLCM_connect()
 {
-    lcm_mode = MODE_IDLE;
-    lcm_send_cmd_frame(CMD_RESET);
+    fsm_init();
+    lcm_send_cmd(CMD_RESET);
 
-    usleep(100000);
-    lcm_receive_check();
+    while (fsm_get_state(&lcm_fsm) != ST_CONNECTED) {
+	usleep(100000);
+	lcm_receive_check();
+    }
 }
 
 static int drv_TeakLCM_open(const char *section)
@@ -550,7 +764,7 @@ static int drv_TeakLCM_close(void)
 static void drv_TeakLCM_clear(void)
 {
     /* do whatever is necessary to clear the display */
-    lcm_send_cmd_frame(LCM_CLEAR);
+    lcm_send_cmd(LCM_CLEAR);
 }
 
 
@@ -574,8 +788,9 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
 
     debug_shadow(" shadow ");
 
-    lcm_send_data_frame((row == 0)?CMD_PRINT1:CMD_PRINT2,
-			&shadow[DCOLS*row], DCOLS);
+    fsm_send_data(&lcm_fsm,
+		  (row == 0)?CMD_PRINT1:CMD_PRINT2,
+		  &shadow[DCOLS*row], DCOLS);
 }
 
 
@@ -595,11 +810,11 @@ static int drv_TeakLCM_start(const char *section)
 	free(s);
 	return -1;
     }
- 
+
     DROWS = rows;
     DCOLS = cols;
     shadow = malloc(DROWS*DCOLS);
-    memset(shadow, 32, DROWS*DCOLS);
+    memset(shadow, ' ', DROWS*DCOLS);
 
     /* open communication with the display */
     if (drv_TeakLCM_open(section) < 0) {
@@ -613,8 +828,8 @@ static int drv_TeakLCM_start(const char *section)
     debug("%s: %s connected", Name, __FUNCTION__);
 
     drv_TeakLCM_clear();	/* clear display */
-    lcm_send_cmd_frame(LCM_BACKLIGHT_ON);
-    lcm_send_cmd_frame(LCM_DISPLAY_ON);
+    lcm_send_cmd(LCM_BACKLIGHT_ON);
+    lcm_send_cmd(LCM_DISPLAY_ON);
 
     debug("%s: %s done", Name, __FUNCTION__);
     return 0;
@@ -696,7 +911,6 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 }
 
 
-
 /* close driver & display */
 /* use this function for a text display */
 int drv_TeakLCM_quit(const int quiet)
@@ -714,15 +928,16 @@ int drv_TeakLCM_quit(const int quiet)
 	drv_generic_text_greet("goodbye!", NULL);
     }
 
-    lcm_send_cmd_frame(LCM_DISPLAY_OFF);
+    lcm_send_cmd(LCM_DISPLAY_OFF);
     // lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
-    lcm_send_cmd_frame(CMD_DISCONNECT);
+    lcm_send_cmd(CMD_DISCONNECT);
 
     debug("closing connection");
     drv_TeakLCM_close();
 
     return (0);
 }
+
 
 /* use this one for a text display */
 DRIVER drv_TeakLCM = {
@@ -731,6 +946,7 @@ DRIVER drv_TeakLCM = {
     .init = drv_TeakLCM_init,
     .quit = drv_TeakLCM_quit,
 };
+
 
 /*
  * Local Variables:
