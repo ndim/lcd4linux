@@ -62,8 +62,8 @@
 static char Name[] = "TeakLCM";
 
 
-#define HI8(value) ((unsigned char)(((value)>>8) & 0xff))
-#define LO8(value) ((unsigned char)((value) & 0xff))
+#define HI8(value) ((u_int8_t)(((value)>>8) & 0xff))
+#define LO8(value) ((u_int8_t)((value) & 0xff))
 
 
 static u_int16_t CRC16(u_int8_t value, u_int16_t crcin)
@@ -80,19 +80,6 @@ static u_int16_t CRC16(u_int8_t value, u_int16_t crcin)
     }
     return ((crcin << 8) ^ crc);
 }
-
-
-#if 0
-static u_int16_t CRC16Buf(unsigned int count, unsigned char *buffer)
-{
-    u_int16_t crc = 0;
-    do {
-	u_int8_t value = *buffer++;
-	crc = CRC16(value, crc);
-    } while (--count);
-    return crc;
-}
-#endif
 
 
 /** Return a printable character */
@@ -441,7 +428,7 @@ void fsm_handle_datacmd(lcm_fsm_t *fsm,
 	switch (cmd) {
 	case CMD_WRITE:
 	    assert(payload_len == 1);
-	    debug("Got a key %c=0x%x", *payload, *payload);
+	    debug("Got a key code 0x%02x", *payload);
 	    fsm_trans_noop(fsm, ST_CONNECTED);
 	    // lcm_send_cmd_frame(CMD_ACK);
 	    break;
