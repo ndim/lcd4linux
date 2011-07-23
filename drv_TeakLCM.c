@@ -336,7 +336,7 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	    (rxbuf[ci+2]==LCM_FRAME_MASK)) {
 	    lcm_cmd_t cmd = rxbuf[1];
 	    u_int16_t len = (rxbuf[3]<<8) + rxbuf[2];
-	    fsm_handle_datacmd(fsm, cmd, &rxbuf[5], len);
+	    fsm_handle_datacmd(fsm, cmd, &rxbuf[4], len);
 	    return 1;
 	} else {
 	    fsm_trans_cmd(fsm, fsm_get_state(fsm), /* TODO: Is this a good next_state value? */
