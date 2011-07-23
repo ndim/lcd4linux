@@ -329,7 +329,7 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	/* calculate CRC for unescaped data */
 	u_int16_t crc=0;
 	for (ci=1; ci<clen-3; ci++) {
-	    crc = CRC16(crc, ci);
+	    crc = CRC16(rxbuf[ci], crc);
 	}
 	if ((rxbuf[ci+0]==HI8(crc)) &&
 	    (rxbuf[ci+1]==LO8(crc)) &&
