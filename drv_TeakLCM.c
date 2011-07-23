@@ -331,6 +331,8 @@ int fsm_handle_bytes(lcm_fsm_t *fsm,
 	for (ci=1; ci<clen-3; ci++) {
 	    crc = CRC16(rxbuf[ci], crc);
 	}
+	/* FIXME: Handle potential additional frame data after this
+	 *        frame */
 	if ((rxbuf[ci+0]==HI8(crc)) &&
 	    (rxbuf[ci+1]==LO8(crc)) &&
 	    (rxbuf[ci+2]==LCM_FRAME_MASK)) {
