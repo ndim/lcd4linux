@@ -351,6 +351,10 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 	break;
     }
     debug("lcm_handle_cmd_frame: new state 0x%02x %s", lcm_mode, modestr(lcm_mode));
+    usleep(1000000);
+    lcm_receive_check();
+    usleep(1000000);
+    lcm_receive_check();
 }
 
 
@@ -380,6 +384,8 @@ static void lcm_handle_data_frame(const lcm_cmd_t cmd,
 	break;
     }
     debug("lcm_handle_data_frame: new state 0x%02x %s", lcm_mode, modestr(lcm_mode));
+    usleep(1000000);
+    lcm_receive_check();
 }
 
 
@@ -422,6 +428,7 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
     debug("%s sending cmd frame cmd=%d=%s", __FUNCTION__, cmd, cmdstr(cmd));
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
+#if 0
     usleep(100000);
     switch (cmd) {
     case CMD_ACK:
@@ -441,6 +448,7 @@ static void lcm_send_cmd_frame(lcm_cmd_t cmd)
 	}
 	break;
     }
+#endif
 }
 
 
