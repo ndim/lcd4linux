@@ -732,7 +732,7 @@ static void drv_TeakLCM_connect()
 	debug_data(" initial RX garbage ", rxbuf, readlen);
     }
     fsm_init();
-    lcm_send_cmd(CMD_RESET);
+    raw_send_cmd_frame(CMD_RESET);
 
     while (fsm_get_state(&lcm_fsm) != ST_CONNECTED) {
 	usleep(100000);
