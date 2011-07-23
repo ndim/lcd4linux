@@ -773,14 +773,6 @@ static int drv_TeakLCM_close(void)
 // drv_generic_serial_write(data, len);
 
 
-/* text mode displays only */
-static void drv_TeakLCM_clear(void)
-{
-    /* do whatever is necessary to clear the display */
-    lcm_send_cmd(LCM_CLEAR);
-}
-
-
 /* shadow buffer */
 char *shadow;
 
@@ -788,6 +780,17 @@ char *shadow;
 static void debug_shadow(const char *prefix)
 {
     debug_data_int(prefix, shadow, DCOLS*DROWS, 20);
+}
+
+
+/* text mode displays only */
+static void drv_TeakLCM_clear(void)
+{
+    /* do whatever is necessary to clear the display */
+    memset(shadow, ' ', DROWS*DCOLS);
+    debug_shadow(" shadow ");
+    fsm_send_data(&lcm_fsm, CMD_PRINT1, &shadow[DCOLS*0], DCOLS);
+    fsm_send_data(&lcm_fsm, CMD_PRINT2, &shadow[DCOLS*1], DCOLS);
 }
 
 
