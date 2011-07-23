@@ -579,27 +579,6 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
 }
 
 
-/* text mode displays only */
-#if 0
-static void drv_TeakLCM_defchar(const int ascii, const unsigned char *matrix)
-{
-    char cmd[10];
-    int i;
-
-    /* call the 'define character' function */
-    /* assume 0x03 to be the 'defchar' command */
-    cmd[0] = 0x03;
-    cmd[1] = ascii;
-
-    /* send bitmap to the display */
-    for (i = 0; i < 8; i++) {
-	cmd[i + 2] = *matrix++;
-    }
-    drv_TeakLCM_send(cmd, 10);
-}
-#endif
-
-
 /* start text mode display */
 static int drv_TeakLCM_start(const char *section)
 {
@@ -688,10 +667,6 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 
     /* real worker functions */
     drv_generic_text_real_write = drv_TeakLCM_write;
-#if 0
-    drv_generic_text_real_defchar = drv_TeakLCM_defchar;
-#endif
-
 
     /* start display */
     if ((ret = drv_TeakLCM_start(section)) != 0)
@@ -710,37 +685,12 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     if ((ret = drv_generic_text_init(section, Name)) != 0)
 	return ret;
 
-#if 0
-    /* initialize generic icon driver */
-    if ((ret = drv_generic_text_icon_init()) != 0)
-	return ret;
-
-    /* initialize generic bar driver */
-    if ((ret = drv_generic_text_bar_init(0)) != 0)
-	return ret;
-
-    /* add fixed chars to the bar driver */
-    drv_generic_text_bar_add_segment(0, 0, 255, 32);	/* ASCII  32 = blank */
-#endif
-
     /* register text widget */
     wc = Widget_Text;
     wc.draw = drv_generic_text_draw;
     widget_register(&wc);
 
-#if 0
-    /* register icon widget */
-    wc = Widget_Icon;
-    wc.draw = drv_generic_text_icon_draw;
-    widget_register(&wc);
-
-    /* register bar widget */
-    wc = Widget_Bar;
-    wc.draw = drv_generic_text_bar_draw;
-    widget_register(&wc);
-
     /* register plugins */
-#endif
 
     return 0;
 }
