@@ -329,7 +329,7 @@ static void lcm_handle_cmd_frame(lcm_cmd_t cmd)
 	case CMD_CONNECT: lcm_send_cmd_frame(CMD_ACK);     lcm_mode = MODE_COMMAND; break;
 	case CMD_ACK:     lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_CONNECTED; break;
 	case CMD_NACK:    lcm_send_cmd_frame(CMD_CONFIRM); lcm_mode = MODE_IDLE; break;
-	case CMD_CONFIRM: lcm_mode = MODE_IDLE; break;
+	case CMD_CONFIRM:                                  lcm_mode = MODE_CONNECTED; break;
 	case CMD_RESET:   lcm_send_cmd_frame(CMD_CONNECT); lcm_mode = MODE_COMMAND; break;
 	default:
 	    lcm_send_cmd_frame(CMD_NACK);
