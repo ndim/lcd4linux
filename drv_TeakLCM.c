@@ -44,6 +44,8 @@
 
 #include <assert.h>
 
+#include "event.h"
+#include "timer.h"
 #include "debug.h"
 #include "cfg.h"
 #include "qprintf.h"
@@ -248,15 +250,21 @@ const char *state2str(const lcm_state_t state) {
 
 
 static
+void repeat_connect_to_display_callback(void *data);
+
+static
+void lcm_send_cmd(lcm_cmd_t cmd);
+
+static
+void drv_TeakLCM_clear(void);
+
+
+static
 void raw_send_cmd_frame(lcm_cmd_t cmd);
 
 static
 void raw_send_data_frame(lcm_cmd_t cmd,
 			 const char *data, const unsigned int len);
-
-
-static
-int lcm_receive_check(void);
 
 
 static
@@ -334,7 +342,7 @@ void fsm_handle_bytes(lcm_fsm_t *fsm,
 		/* looks like a complete data frame */
 		lcm_cmd_t cmd = rxbuf[1];
 		u_int16_t len = (rxbuf[3]<<8) + rxbuf[2];
-		assert(ci == (1+1+2+len+2+1));
+		assert(ci == (unsigned int)(1+1+2+len+2+1));
 		fsm_handle_datacmd(fsm, cmd, &rxbuf[4], len);
 		if (ri+1 < buflen) {
 		    /* recursively handle remaining bytes */
@@ -354,9 +362,6 @@ void fsm_handle_bytes(lcm_fsm_t *fsm,
 	return;
     }
 }
-
-
-static int lcm_receive_check(void);
 
 
 static void fsm_handle_cmd(lcm_fsm_t *fsm, lcm_cmd_t cmd)
@@ -414,11 +419,6 @@ static void fsm_handle_cmd(lcm_fsm_t *fsm, lcm_cmd_t cmd)
 	break;
     }
     fsm_step(fsm);
-
-    usleep(1000000);
-    lcm_receive_check();
-    usleep(1000000);
-    lcm_receive_check();
 }
 
 
@@ -452,9 +452,6 @@ void fsm_handle_datacmd(lcm_fsm_t *fsm,
 	break;
     }
     fsm_step(fsm);
-
-    usleep(1000000);
-    lcm_receive_check();
 }
 
 
@@ -512,6 +509,22 @@ void fsm_step(lcm_fsm_t *fsm)
     case ST_IDLE:
     case ST_COMMAND:
     case ST_CONNECTED:
+	if (fsm->state != ST_CONNECTED) {
+	    if (!global_reset_rx_flag) {
+		int timer_res = timer_add(repeat_connect_to_display_callback, NULL, 50 /*ms*/, 1);
+		debug("re-scheduled connect callback result: %d", timer_res);
+	    } else {
+		/* properly connected for the first time */
+		debug("%s: %s connected", Name, __FUNCTION__);
+
+		/* reschedule this? */
+		usleep(100000);
+
+		lcm_send_cmd(LCM_DISPLAY_ON);
+		lcm_send_cmd(LCM_BACKLIGHT_ON);
+		drv_TeakLCM_clear();	/* clear display */
+	    }
+	}
 	fsm->state = fsm->next_state;
 	fsm->next_state = -1;
 	return;
@@ -519,6 +532,11 @@ void fsm_step(lcm_fsm_t *fsm)
     }
     error("LCM FSM: Illegal next_state");
 }
+
+
+#if 0
+
+#endif
 
 
 static
@@ -606,20 +624,6 @@ void fsm_init(void)
 }
 
 
-static int lcm_receive_check(void)
-{
-    static u_int8_t rxbuf[32];
-    const int readlen = drv_generic_serial_poll((void *)rxbuf, sizeof(rxbuf));
-    if (readlen <= 0) {
-	debug("%s Received no data", __FUNCTION__);
-	return 0;
-    }
-    debug("%s RECEIVED %d bytes", __FUNCTION__, readlen);
-    debug_data(" RX ", rxbuf, readlen);
-    fsm_handle_bytes(&lcm_fsm, rxbuf, readlen);
-    return 1;
-}
-
 
 /* Send a command frame to the TCM board */
 static
@@ -667,8 +671,6 @@ void raw_send_data_frame(lcm_cmd_t cmd,
     static char frame[32];
     u_int16_t crc = 0;
 
-    lcm_receive_check();
-
     frame[0] = LCM_FRAME_MASK;
 
     frame[1] = cmd;
@@ -711,10 +713,9 @@ void raw_send_data_frame(lcm_cmd_t cmd,
     debug_data(" TXD ", frame, fi);
     drv_generic_serial_write(frame, fi);
 
-    usleep(100000);
-    lcm_receive_check();
-
 #undef APPEND
+
+    usleep(50000);
 }
 
 
@@ -725,44 +726,44 @@ void lcm_send_cmd(lcm_cmd_t cmd)
 }
 
 
-/* Initialize the LCM by completing the handshake */
-static void drv_TeakLCM_connect()
+static
+void lcm_event_callback(event_flags_t flags, void *data)
 {
-    static u_int8_t rxbuf[32];
-    const int readlen = drv_generic_serial_poll((void *)rxbuf, sizeof(rxbuf));
-    if (readlen >= 0) {
-	debug_data(" initial RX garbage ", rxbuf, readlen);
-    }
-
-    do {
-	fsm_init();
-	raw_send_cmd_frame(CMD_RESET);
-
-	while (fsm_get_state(&lcm_fsm) != ST_CONNECTED) {
-	    usleep(100000);
-	    lcm_receive_check();
+    lcm_fsm_t *fsm = (lcm_fsm_t *)data;
+    debug("%s: flags=%d, data=%p", __FUNCTION__, flags, data);
+    if (flags & EVENT_READ) {
+	static u_int8_t rxbuf[32];
+	const int readlen = drv_generic_serial_poll((void *)rxbuf, sizeof(rxbuf));
+	if (readlen <= 0) {
+	    debug("%s Received no data", __FUNCTION__);
+	} else {
+	    debug("%s RECEIVED %d bytes", __FUNCTION__, readlen);
+	    debug_data(" RX ", rxbuf, readlen);
+	    fsm_handle_bytes(fsm, rxbuf, readlen);
 	}
-
-	usleep(2*1000*1000);
-    } while (!global_reset_rx_flag);
-
+    }
 }
+
 
 static int drv_TeakLCM_open(const char *section)
 {
     /* open serial port */
     /* don't mind about device, speed and stuff, this function will take care of */
 
-    if (drv_generic_serial_open(section, Name, 0) < 0)
+    const int fd = drv_generic_serial_open(section, Name, 0);
+    if (fd < 0)
 	return -1;
 
-    return 0;
+    return fd;
 }
 
 
-
-static int drv_TeakLCM_close(void)
+static int drv_TeakLCM_close(int fd)
 {
+    if (fd >= 0) {
+	event_del(fd);
+    }
+
     /* close whatever port you've opened */
     drv_generic_serial_close();
 
@@ -784,7 +785,8 @@ static void debug_shadow(const char *prefix)
 
 
 /* text mode displays only */
-static void drv_TeakLCM_clear(void)
+static
+void drv_TeakLCM_clear(void)
 {
     /* do whatever is necessary to clear the display */
     memset(shadow, ' ', DROWS*DCOLS);
@@ -807,6 +809,42 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
     fsm_send_data(&lcm_fsm,
 		  (row == 0)?CMD_PRINT1:CMD_PRINT2,
 		  &shadow[DCOLS*row], DCOLS);
+}
+
+
+static
+void try_reset(void)
+{
+    fsm_init();
+    raw_send_cmd_frame(CMD_RESET);
+}
+
+
+static
+void repeat_connect_to_display_callback(void *data)
+{
+    debug("%s(%p): called", __FUNCTION__, data);
+
+    /* reset & initialize display */
+    try_reset();
+}
+
+
+static
+int global_fd = -1;
+
+
+static
+void initial_connect_to_display_callback(void *data)
+{
+    debug("%s(%p): called", __FUNCTION__, data);
+
+    debug("Calling event_add for fd=%d", global_fd);
+    int ret = event_add(lcm_event_callback, &lcm_fsm, global_fd, 1, 0, 1);
+    debug("event_add result: %d", ret);
+
+    /* reset & initialize display */
+    try_reset();
 }
 
 
@@ -833,21 +871,22 @@ static int drv_TeakLCM_start(const char *section)
     memset(shadow, ' ', DROWS*DCOLS);
 
     /* open communication with the display */
-    if (drv_TeakLCM_open(section) < 0) {
+    global_fd = drv_TeakLCM_open(section);
+    if (global_fd < 0) {
 	return -1;
     }
     debug("%s: %s opened", Name, __FUNCTION__);
 
-    /* reset & initialize display */
-    drv_TeakLCM_connect();
+    /* read initial garbage data */
+    static u_int8_t rxbuf[32];
+    const int readlen = drv_generic_serial_poll((void *)rxbuf, sizeof(rxbuf));
+    if (readlen >= 0) {
+	debug_data(" initial RX garbage ", rxbuf, readlen);
+    }
 
-    debug("%s: %s connected", Name, __FUNCTION__);
-
-    usleep(500000);
-
-    lcm_send_cmd(LCM_DISPLAY_ON);
-    lcm_send_cmd(LCM_BACKLIGHT_ON);
-    drv_TeakLCM_clear();	/* clear display */
+    /* We need to do a delayed connect */
+    int timer_res = timer_add(initial_connect_to_display_callback, NULL, 10 /*ms*/, 1);
+    debug("timer_add for connect callback result: %d", timer_res);
 
     debug("%s: %s done", Name, __FUNCTION__);
     return 0;
@@ -950,12 +989,11 @@ int drv_TeakLCM_quit(const int quiet)
     // lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
     lcm_send_cmd(CMD_DISCONNECT);
 
-    /* consume final ack frame */
+    /* FIXME: consume final ack frame */
     usleep(100000);
-    lcm_receive_check();
 
     debug("closing connection");
-    drv_TeakLCM_close();
+    drv_TeakLCM_close(global_fd);
 
     return (0);
 }
