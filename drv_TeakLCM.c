@@ -588,6 +588,8 @@ void fsm_send(lcm_fsm_t *fsm, const lcm_cmd_t cmd)
     switch (old_state) {
     case ST_IDLE:
     case ST_COMMAND:
+	debug("%s: %s, ignoring cmd 0x%02x=%s", __FUNCTION__,
+	      state2str(old_state), cmd, cmdstr(cmd));
 	/* Silently ignore the command to send. */
 	/* TODO: Would it be better to queue it and send it later? */
 	break;
@@ -609,6 +611,8 @@ void fsm_send_data(lcm_fsm_t *fsm,
     switch (old_state) {
     case ST_IDLE:
     case ST_COMMAND:
+	debug("%s: %s, ignoring data cmd 0x%02x=%s", __FUNCTION__,
+	      state2str(old_state), cmd, cmdstr(cmd));
 	/* Silently ignore the command to send. */
 	/* TODO: Would it be better to queue it and send it later? */
 	break;
