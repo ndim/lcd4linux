@@ -251,8 +251,10 @@ const char *state2str(const lcm_state_t state) {
 }
 
 
+#if 0
 static
 void repeat_connect_to_display_callback(void *data);
+#endif
 
 static
 void lcm_send_cmd(lcm_cmd_t cmd);
@@ -281,6 +283,9 @@ void fsm_handle_datacmd(lcm_fsm_t *fsm,
 			const lcm_cmd_t cmd,
 			const u_int8_t *payload,
 			const unsigned int payload_len);
+
+static
+void try_reset(void);
 
 static
 void fsm_step(lcm_fsm_t *fsm);
@@ -414,8 +419,9 @@ static void fsm_handle_cmd(lcm_fsm_t *fsm, lcm_cmd_t cmd)
 	    fsm_trans_cmd(fsm, ST_IDLE, CMD_CONNECT);
 	    break;
 	default:
-	    error("%s: Unhandled cmd %s in state %s", Name,
+	    debug("%s: Ignoring unhandled cmd %s in state %s", Name,
 		  cmdstr(cmd), state2str(old_state));
+	    fsm_trans_noop(fsm, ST_CONNECTED);
 	    break;
 	}
 	break;
@@ -515,27 +521,44 @@ void fsm_step(lcm_fsm_t *fsm)
     switch (fsm->next_state) {
     case ST_IDLE:
     case ST_COMMAND:
+	fsm->state = fsm->next_state;
+	fsm->next_state = -1;
+	return;
+	break;
     case ST_CONNECTED:
 	if (fsm->state != ST_CONNECTED) {
 	    /* going from ST_IDLE or ST_COMMAND into ST_CONNECTED */
 	    if (!global_reset_rx_flag) {
+		try_reset();
+#if 0
 		int timer_res = timer_add(repeat_connect_to_display_callback, NULL, 50 /*ms*/, 1);
 		debug("re-scheduled connect callback result: %d", timer_res);
+
+		done by try_reset/fsm_init
+		fsm->state = fsm->next_state;
+		fsm->next_state = -1;
+#endif
+		return;
 	    } else {
 		/* properly connected for the first time */
 		debug("%s: %s NOW CONNECTED!!!", Name, __FUNCTION__);
 
-		/* reschedule this? */
-		usleep(100000);
+		fsm->state = fsm->next_state;
+		fsm->next_state = -1;
 
 		lcm_send_cmd(LCM_DISPLAY_ON);
-		lcm_send_cmd(LCM_BACKLIGHT_ON);
 		flush_shadow();
+		lcm_send_cmd(LCM_BACKLIGHT_ON);
+		return;
 	    }
+	} else {
+	    debug("no state change in ST_CONNECTED");
+	    fsm->state = fsm->next_state;
+	    fsm->next_state = -1;
+	    return;
 	}
-	fsm->state = fsm->next_state;
-	fsm->next_state = -1;
-	return;
+	error("we should never arrive here");
+	abort();
 	break;
     }
     error("LCM FSM: Illegal next_state");
@@ -650,6 +673,7 @@ void raw_send_cmd_frame(lcm_cmd_t cmd)
     debug("%s sending cmd frame cmd=0x%02x=%s", __FUNCTION__, cmd, cmdstr(cmd));
     debug_data(" TX ", cmd_buf, 3);
     drv_generic_serial_write(cmd_buf, 3);
+    usleep(100);
 #if 0
     usleep(100000);
     switch (cmd) {
@@ -728,7 +752,7 @@ void raw_send_data_frame(lcm_cmd_t cmd,
 
 #undef APPEND
 
-    usleep(50000);
+    usleep(500);
 }
 
 
@@ -837,11 +861,13 @@ static void drv_TeakLCM_write(const int row, const int col, const char *data, in
 static
 void try_reset(void)
 {
+    debug("%s called", __FUNCTION__);
     fsm_init();
     raw_send_cmd_frame(CMD_RESET);
 }
 
 
+#if 0
 static
 void repeat_connect_to_display_callback(void *data)
 {
@@ -856,6 +882,7 @@ void repeat_connect_to_display_callback(void *data)
 	debug("%s(%p): already called, ignoring", __FUNCTION__, data);
     }
 }
+#endif
 
 
 static
@@ -956,7 +983,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     WIDGET_CLASS wc;
     int ret;
 
-    info("%s: %s", Name, "$Rev$");
+    info("%s: %s (quiet=%d)", Name, "$Rev$", quiet);
 
     /* display preferences */
     XRES = 5;			/* pixel width of one char  */
@@ -992,7 +1019,7 @@ int drv_TeakLCM_init(const char *section, const int quiet)
 int drv_TeakLCM_quit(const int quiet)
 {
 
-    info("%s: shutting down.", Name);
+    info("%s: shutting down. (quiet=%d)", Name, quiet);
 
     drv_generic_text_quit();
 
