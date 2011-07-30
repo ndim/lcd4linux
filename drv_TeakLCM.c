@@ -587,9 +587,9 @@ void fsm_send(lcm_fsm_t *fsm, const lcm_cmd_t cmd)
 	break;
     case ST_CONNECTED:
 	fsm_trans_cmd(fsm, ST_CONNECTED, cmd);
+	fsm_step(fsm);
 	break;
     }
-    fsm_step(fsm);
 }
 
 
@@ -608,9 +608,9 @@ void fsm_send_data(lcm_fsm_t *fsm,
 	break;
     case ST_CONNECTED:
 	fsm_trans_data(fsm, ST_CONNECTED, cmd, data, len);
+	fsm_step(fsm);
 	break;
     }
-    fsm_step(fsm);
 }
 
 
