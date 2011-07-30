@@ -485,6 +485,10 @@ lcm_state_t fsm_get_state(lcm_fsm_t *fsm)
 
 
 static
+void flush_shadow(void);
+
+
+static
 void fsm_step(lcm_fsm_t *fsm)
 {
     debug("fsm: old_state=%s new_state=%s",
@@ -523,7 +527,7 @@ void fsm_step(lcm_fsm_t *fsm)
 
 		lcm_send_cmd(LCM_DISPLAY_ON);
 		lcm_send_cmd(LCM_BACKLIGHT_ON);
-		drv_TeakLCM_clear();	/* clear display */
+		flush_shadow();
 	    }
 	}
 	fsm->state = fsm->next_state;
@@ -786,15 +790,23 @@ static void debug_shadow(const char *prefix)
 }
 
 
+static
+void flush_shadow(void)
+{
+    debug("%s called", __FUNCTION__);
+    debug_shadow(" shadow ");
+    fsm_send_data(&lcm_fsm, CMD_PRINT1, &shadow[DCOLS*0], DCOLS);
+    fsm_send_data(&lcm_fsm, CMD_PRINT2, &shadow[DCOLS*1], DCOLS);
+}
+
+
 /* text mode displays only */
 static
 void drv_TeakLCM_clear(void)
 {
     /* do whatever is necessary to clear the display */
     memset(shadow, ' ', DROWS*DCOLS);
-    debug_shadow(" shadow ");
-    fsm_send_data(&lcm_fsm, CMD_PRINT1, &shadow[DCOLS*0], DCOLS);
-    fsm_send_data(&lcm_fsm, CMD_PRINT2, &shadow[DCOLS*1], DCOLS);
+    flush_shadow();
 }
 
 
