@@ -492,6 +492,7 @@ void fsm_step(lcm_fsm_t *fsm)
     switch (fsm->action_type) {
     case ACTION_UNINITIALIZED:
 	error("Uninitialized LCM FSM action");
+	abort();
 	break;
     case ACTION_NOOP:
 	break;
@@ -531,6 +532,7 @@ void fsm_step(lcm_fsm_t *fsm)
 	break;
     }
     error("LCM FSM: Illegal next_state");
+    abort();
 }
 
 
