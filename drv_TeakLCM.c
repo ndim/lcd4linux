@@ -800,8 +800,11 @@ void flush_shadow(void)
 {
     debug("%s called", __FUNCTION__);
     debug_shadow(" shadow ");
+    usleep(50000);
     fsm_send_data(&lcm_fsm, CMD_PRINT1, &shadow[DCOLS*0], DCOLS);
+    usleep(50000);
     fsm_send_data(&lcm_fsm, CMD_PRINT2, &shadow[DCOLS*1], DCOLS);
+    usleep(50000);
 }
 
 
