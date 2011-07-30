@@ -517,12 +517,13 @@ void fsm_step(lcm_fsm_t *fsm)
     case ST_COMMAND:
     case ST_CONNECTED:
 	if (fsm->state != ST_CONNECTED) {
+	    /* going from ST_IDLE or ST_COMMAND into ST_CONNECTED */
 	    if (!global_reset_rx_flag) {
 		int timer_res = timer_add(repeat_connect_to_display_callback, NULL, 50 /*ms*/, 1);
 		debug("re-scheduled connect callback result: %d", timer_res);
 	    } else {
 		/* properly connected for the first time */
-		debug("%s: %s connected", Name, __FUNCTION__);
+		debug("%s: %s NOW CONNECTED!!!", Name, __FUNCTION__);
 
 		/* reschedule this? */
 		usleep(100000);
