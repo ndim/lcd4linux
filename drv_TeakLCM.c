@@ -825,10 +825,16 @@ void try_reset(void)
 static
 void repeat_connect_to_display_callback(void *data)
 {
-    debug("%s(%p): called", __FUNCTION__, data);
+    static int already_called = 0;
+    if (!already_called) {
+	debug("%s(%p): called", __FUNCTION__, data);
 
-    /* reset & initialize display */
-    try_reset();
+	/* reset & initialize display */
+	try_reset();
+	already_called = 1;
+    } else {
+	debug("%s(%p): already called, ignoring", __FUNCTION__, data);
+    }
 }
 
 
