@@ -166,6 +166,7 @@ typedef enum {
 } lcm_cmd_t;
 
 
+static
 const char *cmdstr(const lcm_cmd_t cmd) {
    switch (cmd) {
 #define D(CMD) case CMD_ ## CMD: return "CMD_" # CMD; break;
@@ -239,6 +240,7 @@ typedef enum {
 } lcm_state_t;
 
 
+static
 const char *state2str(const lcm_state_t state) {
     switch (state) {
     case ST_IDLE:      return "ST_IDLE (0)"; break;
@@ -777,10 +779,8 @@ static int drv_TeakLCM_close(int fd)
 }
 
 
-// drv_generic_serial_write(data, len);
-
-
 /* shadow buffer */
+static
 char *shadow;
 
 
