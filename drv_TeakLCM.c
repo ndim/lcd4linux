@@ -964,15 +964,6 @@ int drv_TeakLCM_init(const char *section, const int quiet)
     if ((ret = drv_TeakLCM_start(section)) != 0)
 	return ret;
 
-    if (!quiet) {
-	char buffer[40];
-	qprintf(buffer, sizeof(buffer), "%s %dx%d", Name, DCOLS, DROWS);
-	if (drv_generic_text_greet(buffer, "Moo!")) {
-	    sleep(3);
-	    drv_TeakLCM_clear();
-	}
-    }
-
     /* initialize generic text driver */
     if ((ret = drv_generic_text_init(section, Name)) != 0)
 	return ret;
@@ -999,11 +990,6 @@ int drv_TeakLCM_quit(const int quiet)
 
     /* clear display */
     drv_TeakLCM_clear();
-
-    /* say goodbye... */
-    if (!quiet) {
-	drv_generic_text_greet("goodbye!", NULL);
-    }
 
     lcm_send_cmd(LCM_DISPLAY_OFF);
     // lcm_send_cmd_frame(LCM_BACKLIGHT_OFF);
